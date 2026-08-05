@@ -85,7 +85,7 @@ const getProductBySlug = async (req, res) => {
     const reviews = reviewRows.map(r => ({
       id: r.id, userId: r.userId, productId: r.productId, rating: r.rating,
       title: r.title, body: r.body, isApproved: r.isApproved, createdAt: r.createdAt,
-      images: r.images ? (Array.isArray(r.images) ? r.images : (() => { try { return JSON.parse(r.images); } catch { return []; } }())) : null, user: { name: r.user_name },
+      images: r.images ? safeParseJSON(r.images, null) : null, user: { name: r.user_name },
     }));
     const avgRating = reviews.length ? reviews.reduce((s, r) => s + r.rating, 0) / reviews.length : 0;
     res.json({ success: true, data: { ...product, reviews, avgRating } });

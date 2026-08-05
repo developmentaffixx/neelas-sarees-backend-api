@@ -14,7 +14,7 @@ router.get('/product/:productId', async (req, res) => {
     const [countRows] = await pool.query('SELECT COUNT(*) as total FROM reviews WHERE productId = ? AND isApproved = 1', [req.params.productId]);
     const total = countRows[0].total;
     const [breakdownRows] = await pool.query(`SELECT rating, COUNT(*) as count FROM reviews WHERE productId = ? AND isApproved = 1 GROUP BY rating ORDER BY rating DESC`, [req.params.productId]);
-    const reviews = rows.map(r => ({ id: r.id, userId: r.userId, productId: r.productId, rating: r.rating, title: r.title, body: r.body, images: r.images ? JSON.parse(r.images) : null, isApproved: r.isApproved, helpfulCount: r.helpfulCount, notHelpfulCount: r.notHelpfulCount, createdAt: r.createdAt, user: { name: r.user_name } }));
+    const reviews = rows.map(r => ({ id: r.id, userId: r.userId, productId: r.productId, rating: r.rating, title: r.title, body: r.body, images: r.images ? (Array.isArray(r.images) ? r.images : (() => { try { return JSON.parse(r.images); } catch { return []; } }())) : null, isApproved: r.isApproved, helpfulCount: r.helpfulCount, notHelpfulCount: r.notHelpfulCount, createdAt: r.createdAt, user: { name: r.user_name } }));
     res.json({ success: true, data: { reviews, breakdown: breakdownRows, total, page: Number(page), pages: Math.ceil(total / Number(limit)) } });
   } catch (error) { res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) }); }
 });

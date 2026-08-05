@@ -21,7 +21,7 @@ router.get('/', authenticate, authorizeAdmin, async (req, res) => {
     const [rows] = await pool.query(`SELECT p.id, p.name, p.slug, p.sku, p.price, p.stock, p.images, c.name as categoryName, c.slug as categorySlug FROM products p LEFT JOIN categories c ON p.categoryId = c.id WHERE ${where} ORDER BY p.stock ASC, p.name ASC LIMIT ? OFFSET ?`, [...params, Number(limit), offset]);
     const [countRows] = await pool.query(`SELECT COUNT(*) as total FROM products p LEFT JOIN categories c ON p.categoryId = c.id WHERE ${where}`, params);
     const [summary] = await pool.query(`SELECT COUNT(*) as totalProducts, SUM(CASE WHEN stock = 0 THEN 1 ELSE 0 END) as outOfStock, SUM(CASE WHEN stock > 0 AND stock <= 5 THEN 1 ELSE 0 END) as lowStock, SUM(CASE WHEN stock > 5 THEN 1 ELSE 0 END) as healthy, SUM(stock) as totalUnits FROM products WHERE isActive = 1`);
-    const products = rows.map(r => ({ ...r, images: r.images ? JSON.parse(r.images) : [] }));
+    const products = rows.map(r => ({ ...r, images: r.images ? (Array.isArray(r.images) ? r.images : (() => { try { return JSON.parse(r.images); } catch { return []; } }())) : [] }));
     res.json({ success: true, data: products, summary: summary[0], pagination: { total: countRows[0].total, page: Number(page), limit: Number(limit), pages: Math.ceil(countRows[0].total / Number(limit)) } });
   } catch (error) { res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) }); }
 });

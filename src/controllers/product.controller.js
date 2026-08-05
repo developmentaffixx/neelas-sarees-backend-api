@@ -2,11 +2,17 @@ const pool = require('../lib/db');
 const { cuid } = require('../lib/cuid');
 const { serializeError } = require('../lib/errorHandler');
 
+function safeParseJSON(value, fallback = []) {
+  if (!value) return fallback;
+  if (Array.isArray(value)) return value;
+  try { return JSON.parse(value); } catch { return fallback; }
+}
+
 function parseProduct(row) {
   return {
     id: row.id, name: row.name, slug: row.slug, description: row.description,
     price: row.price, comparePrice: row.comparePrice, sku: row.sku, stock: row.stock,
-    images: row.images ? JSON.parse(row.images) : [],
+    images: safeParseJSON(row.images),
     fabric: row.fabric, occasion: row.occasion, color: row.color,
     blouseIncluded: Boolean(row.blouseIncluded), careInstructions: row.careInstructions,
     isFeatured: Boolean(row.isFeatured), isActive: Boolean(row.isActive),
@@ -79,7 +85,7 @@ const getProductBySlug = async (req, res) => {
     const reviews = reviewRows.map(r => ({
       id: r.id, userId: r.userId, productId: r.productId, rating: r.rating,
       title: r.title, body: r.body, isApproved: r.isApproved, createdAt: r.createdAt,
-      images: r.images ? JSON.parse(r.images) : null, user: { name: r.user_name },
+      images: r.images ? (Array.isArray(r.images) ? r.images : (() => { try { return JSON.parse(r.images); } catch { return []; } }())) : null, user: { name: r.user_name },
     }));
     const avgRating = reviews.length ? reviews.reduce((s, r) => s + r.rating, 0) / reviews.length : 0;
     res.json({ success: true, data: { ...product, reviews, avgRating } });

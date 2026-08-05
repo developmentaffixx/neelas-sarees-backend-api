@@ -1,5 +1,7 @@
 const { Router } = require('express');
+const { serializeError } = require('../lib/errorHandler');
 const pool = require('../lib/db');
+const { serializeError } = require('../lib/errorHandler');
 const { authenticate, authorizeAdmin } = require('../middleware/auth.middleware');
 const { cuid } = require('../lib/cuid');
 
@@ -22,7 +24,7 @@ router.get('/', authenticate, authorizeAdmin, async (req, res) => {
     const [summary] = await pool.query(`SELECT COUNT(*) as totalProducts, SUM(CASE WHEN stock = 0 THEN 1 ELSE 0 END) as outOfStock, SUM(CASE WHEN stock > 0 AND stock <= 5 THEN 1 ELSE 0 END) as lowStock, SUM(CASE WHEN stock > 5 THEN 1 ELSE 0 END) as healthy, SUM(stock) as totalUnits FROM products WHERE isActive = 1`);
     const products = rows.map(r => ({ ...r, images: r.images ? JSON.parse(r.images) : [] }));
     res.json({ success: true, data: products, summary: summary[0], pagination: { total: countRows[0].total, page: Number(page), limit: Number(limit), pages: Math.ceil(countRows[0].total / Number(limit)) } });
-  } catch (error) { res.status(500).json({ success: false, message: 'Server error', error }); }
+  } catch (error) { res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) }); }
 });
 
 router.post('/adjust', authenticate, authorizeAdmin, async (req, res) => {
@@ -39,7 +41,7 @@ router.post('/adjust', authenticate, authorizeAdmin, async (req, res) => {
     await pool.query('UPDATE products SET stock = ?, updatedAt = NOW() WHERE id = ?', [newStock, productId]);
     await pool.query(`INSERT INTO stock_adjustments (id, productId, type, quantity, previousStock, newStock, reason, adjustedBy) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [cuid(), productId, type, Math.abs(quantity), currentStock, newStock, reason || null, req.user.id]);
     res.json({ success: true, data: { productId, previousStock: currentStock, newStock, type, quantity: Math.abs(quantity) } });
-  } catch (error) { res.status(500).json({ success: false, message: 'Server error', error }); }
+  } catch (error) { res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) }); }
 });
 
 router.get('/history', authenticate, authorizeAdmin, async (req, res) => {
@@ -53,7 +55,7 @@ router.get('/history', authenticate, authorizeAdmin, async (req, res) => {
     const [rows] = await pool.query(`SELECT sa.*, p.name as productName, p.sku as productSku, u.name as adjustedByName FROM stock_adjustments sa JOIN products p ON sa.productId = p.id JOIN users u ON sa.adjustedBy = u.id ${where} ORDER BY sa.createdAt DESC LIMIT ? OFFSET ?`, [...params, Number(limit), offset]);
     const [countRows] = await pool.query(`SELECT COUNT(*) as total FROM stock_adjustments sa ${where}`, params);
     res.json({ success: true, data: rows, pagination: { total: countRows[0].total, page: Number(page), limit: Number(limit), pages: Math.ceil(countRows[0].total / Number(limit)) } });
-  } catch (error) { res.status(500).json({ success: false, message: 'Server error', error }); }
+  } catch (error) { res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) }); }
 });
 
 module.exports = router;

@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const pool = require('../lib/db');
+const { serializeError } = require('../lib/errorHandler');
 const { cuid } = require('../lib/cuid');
 
 const generateTokens = (userId, role) => {
@@ -63,7 +64,7 @@ const register = async (req, res) => {
         accessToken,
       });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Server error', error });
+    res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) });
   }
 };
 
@@ -99,7 +100,7 @@ const login = async (req, res) => {
         accessToken,
       });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Server error', error });
+    res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) });
   }
 };
 

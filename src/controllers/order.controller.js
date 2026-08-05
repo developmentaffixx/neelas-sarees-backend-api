@@ -1,4 +1,5 @@
 const pool = require('../lib/db');
+const { serializeError } = require('../lib/errorHandler');
 const { cuid } = require('../lib/cuid');
 
 const createOrder = async (req, res) => {
@@ -89,7 +90,7 @@ const createOrder = async (req, res) => {
     res.status(201).json({ success: true, data: { ...order, items: itemRows, address: { name: order.addr_name, phone: order.addr_phone, line1: order.line1, line2: order.line2, city: order.city, state: order.state, pincode: order.pincode } } });
   } catch (error) {
     await conn.rollback();
-    res.status(500).json({ success: false, message: 'Server error', error });
+    res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) });
   } finally {
     conn.release();
   }
@@ -107,7 +108,7 @@ const getUserOrders = async (req, res) => {
     const result = orders.map(o => ({ ...o, items: allItems.filter(i => i.orderId === o.id) }));
     res.json({ success: true, data: result });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Server error', error });
+    res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) });
   }
 };
 
@@ -122,7 +123,7 @@ const getOrderById = async (req, res) => {
     const [itemRows] = await pool.query('SELECT * FROM order_items WHERE orderId = ?', [rows[0].id]);
     res.json({ success: true, data: { ...rows[0], items: itemRows } });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Server error', error });
+    res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) });
   }
 };
 
@@ -145,7 +146,7 @@ const cancelOrder = async (req, res) => {
     await pool.query("UPDATE orders SET status = 'CANCELLED', updatedAt = NOW() WHERE id = ?", [order.id]);
     res.json({ success: true, message: 'Order cancelled successfully' });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Server error', error });
+    res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) });
   }
 };
 
@@ -171,7 +172,7 @@ const getAllOrders = async (req, res) => {
     const result = orders.map(o => ({ ...o, items: items.filter(i => i.orderId === o.id) }));
     res.json({ success: true, data: result, pagination: { total: countRows[0].total, page: Number(page), limit: Number(limit), pages: Math.ceil(countRows[0].total / Number(limit)) } });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Server error', error });
+    res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) });
   }
 };
 
@@ -199,7 +200,7 @@ const updateOrderStatus = async (req, res) => {
     const [rows] = await pool.query('SELECT * FROM orders WHERE id = ?', [req.params.id]);
     res.json({ success: true, data: rows[0] });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Server error', error });
+    res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) });
   }
 };
 

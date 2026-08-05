@@ -1,5 +1,7 @@
 const { Router } = require('express');
+const { serializeError } = require('../lib/errorHandler');
 const pool = require('../lib/db');
+const { serializeError } = require('../lib/errorHandler');
 const { authenticate, authorizeAdmin } = require('../middleware/auth.middleware');
 
 const router = Router();
@@ -25,14 +27,14 @@ router.get('/dashboard', authenticate, authorizeAdmin, async (_req, res) => {
     const ordersWithItems = recentOrders.map(o => ({ ...o, user: { name: o.user_name, email: o.user_email }, items: recentItems.filter(i => i.orderId === o.id) }));
 
     res.json({ success: true, data: { totalOrders: totalOrdersRow[0].count, totalRevenue: revenueRow[0].revenue || 0, totalProducts: totalProductsRow[0].count, totalUsers: totalUsersRow[0].count, recentOrders: ordersWithItems } });
-  } catch (error) { res.status(500).json({ success: false, message: 'Server error', error }); }
+  } catch (error) { res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) }); }
 });
 
 router.get('/users', authenticate, authorizeAdmin, async (_req, res) => {
   try {
     const [rows] = await pool.query('SELECT id, name, email, phone, role, createdAt FROM users ORDER BY createdAt DESC');
     res.json({ success: true, data: rows });
-  } catch (error) { res.status(500).json({ success: false, message: 'Server error', error }); }
+  } catch (error) { res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) }); }
 });
 
 module.exports = router;

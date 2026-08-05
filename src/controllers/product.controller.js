@@ -1,5 +1,6 @@
 const pool = require('../lib/db');
 const { cuid } = require('../lib/cuid');
+const { serializeError } = require('../lib/errorHandler');
 
 function parseProduct(row) {
   return {
@@ -57,7 +58,7 @@ const getProducts = async (req, res) => {
       pagination: { total: countRows[0].total, page: Number(page), limit: Number(limit), pages: Math.ceil(countRows[0].total / Number(limit)) },
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Server error', error });
+    res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) });
   }
 };
 
@@ -83,7 +84,7 @@ const getProductBySlug = async (req, res) => {
     const avgRating = reviews.length ? reviews.reduce((s, r) => s + r.rating, 0) / reviews.length : 0;
     res.json({ success: true, data: { ...product, reviews, avgRating } });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Server error', error });
+    res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) });
   }
 };
 
@@ -96,7 +97,7 @@ const getFeaturedProducts = async (_req, res) => {
     );
     res.json({ success: true, data: rows.map(parseProduct) });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Server error', error });
+    res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) });
   }
 };
 
@@ -109,7 +110,7 @@ const getProductById = async (req, res) => {
     if (rows.length === 0) return res.status(404).json({ success: false, message: 'Product not found' });
     res.json({ success: true, data: parseProduct(rows[0]) });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Server error', error });
+    res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) });
   }
 };
 
@@ -139,7 +140,7 @@ const createProduct = async (req, res) => {
     const [rows] = await pool.query('SELECT * FROM products WHERE id = ?', [id]);
     res.status(201).json({ success: true, data: parseProduct(rows[0]) });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Server error', error });
+    res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) });
   }
 };
 
@@ -166,7 +167,7 @@ const updateProduct = async (req, res) => {
     );
     res.json({ success: true, data: parseProduct(rows[0]) });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Server error', error });
+    res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) });
   }
 };
 
@@ -175,7 +176,7 @@ const deleteProduct = async (req, res) => {
     await pool.query('UPDATE products SET isActive = 0 WHERE id = ?', [req.params.id]);
     res.json({ success: true, message: 'Product deleted' });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Server error', error });
+    res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) });
   }
 };
 
@@ -195,7 +196,7 @@ const bulkUpdateProducts = async (req, res) => {
     await pool.query(actionMap[action], ids);
     res.json({ success: true, message: `${ids.length} products updated` });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Server error', error });
+    res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) });
   }
 };
 
@@ -209,7 +210,7 @@ const checkProductUniqueness = async (req, res) => {
     const [rows] = await pool.query(query, params);
     res.json({ success: true, data: { exists: rows.length > 0 } });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Server error', error });
+    res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) });
   }
 };
 

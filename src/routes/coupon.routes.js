@@ -1,5 +1,7 @@
 const { Router } = require('express');
+const { serializeError } = require('../lib/errorHandler');
 const pool = require('../lib/db');
+const { serializeError } = require('../lib/errorHandler');
 const { authenticate, authorizeAdmin } = require('../middleware/auth.middleware');
 const { cuid } = require('../lib/cuid');
 
@@ -36,7 +38,7 @@ router.post('/smart', authenticate, async (req, res) => {
     const eligibleWithDiscount = eligible.map(c => ({ ...c, calculatedDiscount: c.type === 'PERCENTAGE' ? Math.round(orderTotal * c.value / 100) : c.value })).sort((a, b) => b.calculatedDiscount - a.calculatedDiscount);
 
     res.json({ success: true, data: { autoApply: autoApplyCoupon ? { ...autoApplyCoupon, calculatedDiscount: autoDiscount } : null, eligible: eligibleWithDiscount, almostThere, orderCount } });
-  } catch (error) { res.status(500).json({ success: false, message: 'Server error', error }); }
+  } catch (error) { res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) }); }
 });
 
 router.post('/validate', authenticate, async (req, res) => {
@@ -53,14 +55,14 @@ router.post('/validate', authenticate, async (req, res) => {
     if (usedRows.length > 0) return res.status(400).json({ success: false, message: 'You have already used this coupon' });
     const discount = coupon.type === 'PERCENTAGE' ? Math.round(orderTotal * coupon.value / 100) : coupon.value;
     res.json({ success: true, data: { coupon, discount } });
-  } catch (error) { res.status(500).json({ success: false, message: 'Server error', error }); }
+  } catch (error) { res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) }); }
 });
 
 router.get('/', authenticate, authorizeAdmin, async (_req, res) => {
   try {
     const [rows] = await pool.query('SELECT * FROM coupons ORDER BY priority DESC, createdAt DESC');
     res.json({ success: true, data: rows });
-  } catch (error) { res.status(500).json({ success: false, message: 'Server error', error }); }
+  } catch (error) { res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) }); }
 });
 
 router.post('/', authenticate, authorizeAdmin, async (req, res) => {
@@ -70,7 +72,7 @@ router.post('/', authenticate, authorizeAdmin, async (req, res) => {
     await pool.query(`INSERT INTO coupons (id, code, description, displayTitle, type, value, minOrderValue, maxUses, isActive, autoApply, \`trigger\`, thresholdMin, thresholdMax, loyaltyOrderCount, priority, expiresAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [id, code, description || null, displayTitle || null, type, value, minOrderValue, maxUses || null, isActive ? 1 : 0, autoApply ? 1 : 0, trigger, thresholdMin || null, thresholdMax || null, loyaltyOrderCount || null, priority, expiresAt || null]);
     const [rows] = await pool.query('SELECT * FROM coupons WHERE id = ?', [id]);
     res.status(201).json({ success: true, data: rows[0] });
-  } catch (error) { res.status(500).json({ success: false, message: 'Server error', error }); }
+  } catch (error) { res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) }); }
 });
 
 router.put('/:id', authenticate, authorizeAdmin, async (req, res) => {
@@ -79,14 +81,14 @@ router.put('/:id', authenticate, authorizeAdmin, async (req, res) => {
     await pool.query(`UPDATE coupons SET ${fields} WHERE id = ?`, [...Object.values(req.body), req.params.id]);
     const [rows] = await pool.query('SELECT * FROM coupons WHERE id = ?', [req.params.id]);
     res.json({ success: true, data: rows[0] });
-  } catch (error) { res.status(500).json({ success: false, message: 'Server error', error }); }
+  } catch (error) { res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) }); }
 });
 
 router.delete('/:id', authenticate, authorizeAdmin, async (req, res) => {
   try {
     await pool.query('DELETE FROM coupons WHERE id = ?', [req.params.id]);
     res.json({ success: true, message: 'Coupon deleted' });
-  } catch (error) { res.status(500).json({ success: false, message: 'Server error', error }); }
+  } catch (error) { res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) }); }
 });
 
 module.exports = router;

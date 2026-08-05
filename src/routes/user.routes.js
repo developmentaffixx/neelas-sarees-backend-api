@@ -1,7 +1,6 @@
 const { Router } = require('express');
 const { serializeError } = require('../lib/errorHandler');
 const pool = require('../lib/db');
-const { serializeError } = require('../lib/errorHandler');
 const { authenticate } = require('../middleware/auth.middleware');
 const { cuid } = require('../lib/cuid');
 const bcrypt = require('bcryptjs');

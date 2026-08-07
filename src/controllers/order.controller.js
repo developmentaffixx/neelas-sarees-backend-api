@@ -152,17 +152,19 @@ const cancelOrder = async (req, res) => {
 
 const getAllOrders = async (req, res) => {
   try {
-    const { page = '1', limit = '20', status } = req.query;
+    const { page = '1', limit = '20', status, search } = req.query;
     const offset = (Number(page) - 1) * Number(limit);
-    const conditions = status ? ['o.status = ?'] : [];
-    const params = status ? [status] : [];
+    const conditions = [];
+    const params = [];
+    if (status) { conditions.push('o.status = ?'); params.push(status); }
+    if (search) { conditions.push('(u.name LIKE ? OR u.email LIKE ?)'); params.push(`%${search}%`, `%${search}%`); }
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
     const [orders] = await pool.query(
       `SELECT o.*, u.name as user_name, u.email as user_email FROM orders o JOIN users u ON o.userId = u.id ${where} ORDER BY o.createdAt DESC LIMIT ? OFFSET ?`,
       [...params, Number(limit), offset]
     );
-    const [countRows] = await pool.query(`SELECT COUNT(*) as total FROM orders o ${where}`, params);
+    const [countRows] = await pool.query(`SELECT COUNT(*) as total FROM orders o JOIN users u ON o.userId = u.id ${where}`, params);
     const orderIds = orders.map(o => o.id);
     let items = [];
     if (orderIds.length > 0) {

@@ -122,15 +122,23 @@ const getProductById = async (req, res) => {
 
 const createProduct = async (req, res) => {
   try {
-    const { name, slug, description, price, comparePrice, sku, stock, images,
+    const { name, description, price, comparePrice, sku, stock, images,
       fabric, occasion, color, blouseIncluded, careInstructions, isFeatured, isActive, categoryId } = req.body;
 
-    if (!name || !slug || !description || !price || !sku || !fabric || !occasion || !color || !categoryId) {
+    if (!name || !description || !price || !sku || !fabric || !occasion || !color || !categoryId) {
       return res.status(400).json({ success: false, message: 'Missing required fields' });
     }
 
-    const [existingSlug] = await pool.query('SELECT id FROM products WHERE slug = ?', [slug]);
-    if (existingSlug.length > 0) return res.status(400).json({ success: false, message: 'Slug already exists' });
+    // Auto-generate slug from name, append suffix if conflict
+    const baseSlug = name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    let slug = baseSlug;
+    let suffix = 1;
+    while (true) {
+      const [existing] = await pool.query('SELECT id FROM products WHERE slug = ?', [slug]);
+      if (existing.length === 0) break;
+      slug = `${baseSlug}-${suffix++}`;
+    }
+
     const [existingSku] = await pool.query('SELECT id FROM products WHERE sku = ?', [sku]);
     if (existingSku.length > 0) return res.status(400).json({ success: false, message: 'SKU already exists' });
 

@@ -23,8 +23,19 @@ router.get('/admin/all', authenticate, authorizeAdmin, async (_req, res) => {
 router.post('/', authenticate, authorizeAdmin, async (req, res) => {
   try {
     const id = cuid();
-    const { name, slug, type, image, description, isActive = true, sortOrder = 0 } = req.body;
-    await pool.query('INSERT INTO categories (id, name, slug, type, image, description, isActive, sortOrder) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [id, name, slug, type, image || null, description || null, isActive ? 1 : 0, sortOrder]);
+    const { name, type, image, description, isActive = true } = req.body;
+
+    // Auto-generate slug, append suffix on conflict
+    const baseSlug = name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    let slug = baseSlug;
+    let suffix = 1;
+    while (true) {
+      const [existing] = await pool.query('SELECT id FROM categories WHERE slug = ?', [slug]);
+      if (existing.length === 0) break;
+      slug = `${baseSlug}-${suffix++}`;
+    }
+
+    await pool.query('INSERT INTO categories (id, name, slug, type, image, description, isActive, sortOrder) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [id, name, slug, type, image || null, description || null, isActive ? 1 : 0, 0]);
     const [rows] = await pool.query('SELECT * FROM categories WHERE id = ?', [id]);
     res.status(201).json({ success: true, data: rows[0] });
   } catch (error) { res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) }); }

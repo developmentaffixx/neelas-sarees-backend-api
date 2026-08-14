@@ -6,6 +6,15 @@ const { cuid } = require('../lib/cuid');
 
 const router = Router();
 
+// Get all distinct category types (for dynamic dropdown)
+router.get('/types', authenticate, authorizeAdmin, async (_req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT DISTINCT type FROM categories ORDER BY type ASC');
+    const types = rows.map(r => r.type);
+    res.json({ success: true, data: types });
+  } catch (error) { res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) }); }
+});
+
 router.get('/', async (_req, res) => {
   try {
     const [rows] = await pool.query('SELECT * FROM categories WHERE isActive = 1 ORDER BY sortOrder ASC');

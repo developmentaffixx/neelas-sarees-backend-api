@@ -26,6 +26,31 @@ const authenticate = async (req, res, next) => {
   }
 };
 
+const optionalAuthenticate = async (req, _res, next) => {
+  try {
+    const token =
+      req.cookies?.accessToken ||
+      req.headers.authorization?.split(' ')[1];
+
+    if (!token) {
+      req.user = null;
+      return next();
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const [rows] = await pool.query('SELECT id, role FROM users WHERE id = ?', [decoded.id]);
+    if (rows.length > 0) {
+      req.user = { id: rows[0].id, role: rows[0].role };
+    } else {
+      req.user = null;
+    }
+    next();
+  } catch {
+    req.user = null;
+    next();
+  }
+};
+
 const authorizeAdmin = (req, res, next) => {
   if (req.user?.role !== 'ADMIN' && req.user?.role !== 'SUPER_ADMIN') {
     res.status(403).json({ success: false, message: 'Admin access required' });
@@ -34,4 +59,4 @@ const authorizeAdmin = (req, res, next) => {
   next();
 };
 
-module.exports = { authenticate, authorizeAdmin };
+module.exports = { authenticate, optionalAuthenticate, authorizeAdmin };

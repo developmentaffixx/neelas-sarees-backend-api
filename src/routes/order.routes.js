@@ -1,9 +1,9 @@
 const { Router } = require('express');
 const { createOrder, getUserOrders, getOrderById, cancelOrder, getAllOrders, updateOrderStatus } = require('../controllers/order.controller');
-const { authenticate, authorizeAdmin } = require('../middleware/auth.middleware');
+const { authenticate, optionalAuthenticate, authorizeAdmin } = require('../middleware/auth.middleware');
 
 const router = Router();
-router.post('/', authenticate, createOrder);
+router.post('/', optionalAuthenticate, createOrder);
 router.get('/my', authenticate, getUserOrders);
 router.get('/my/:id', authenticate, getOrderById);
 router.patch('/my/:id/cancel', authenticate, cancelOrder);

@@ -32,8 +32,30 @@ const getProducts = async (req, res) => {
 
     if (includeInactive !== 'true') conditions.push('p.isActive = 1');
     if (category) { conditions.push('c.slug = ?'); params.push(category); }
-    if (fabric) { conditions.push('p.fabric LIKE ?'); params.push(`%${fabric}%`); }
-    if (occasion) { conditions.push('p.occasion LIKE ?'); params.push(`%${occasion}%`); }
+    if (fabric) {
+      const fabrics = fabric.split(',').map(s => s.trim()).filter(Boolean);
+      if (fabrics.length > 0) {
+        conditions.push('(' + fabrics.map(() => 'p.fabric LIKE ?').join(' OR ') + ')');
+        params.push(...fabrics.map(f => `%${f}%`));
+      }
+    }
+    if (occasion) {
+      const occasions = occasion.split(',').map(s => s.trim()).filter(Boolean);
+      if (occasions.length > 0) {
+        conditions.push('(' + occasions.map(() => 'p.occasion LIKE ?').join(' OR ') + ')');
+        params.push(...occasions.map(o => `%${o}%`));
+      }
+    }
+    if (req.query.color) {
+      const colors = String(req.query.color).split(',').map(s => s.trim()).filter(Boolean);
+      if (colors.length > 0) {
+        conditions.push('(' + colors.map(() => 'p.color LIKE ?').join(' OR ') + ')');
+        params.push(...colors.map(c => `%${c}%`));
+      }
+    }
+    if (req.query.inStock === 'true' || req.query.inStock === true) {
+      conditions.push('p.stock > 0');
+    }
     if (featured === 'true') conditions.push('p.isFeatured = 1');
     if (minPrice) { conditions.push('p.price >= ?'); params.push(Number(minPrice)); }
     if (maxPrice) { conditions.push('p.price <= ?'); params.push(Number(maxPrice)); }

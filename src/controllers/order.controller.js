@@ -6,15 +6,62 @@ const createOrder = async (req, res) => {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
-    const { addressId, items, couponCode, paymentMethod } = req.body;
-    const userId = req.user.id;
+    const { addressId: providedAddressId, shippingAddress, items, couponCode, paymentMethod, razorpayOrderId, razorpayPaymentId } = req.body;
+    let userId = req.user ? req.user.id : null;
+    let addressId = providedAddressId;
 
-    if (!addressId || !items || !Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ success: false, message: 'Address and items are required' });
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      await conn.rollback();
+      return res.status(400).json({ success: false, message: 'Order items are required' });
+    }
+
+    // Handle Guest Checkout or create address if shippingAddress is provided
+    if (!userId) {
+      if (!shippingAddress || !shippingAddress.email || !shippingAddress.firstName || !shippingAddress.address || !shippingAddress.pincode) {
+        await conn.rollback();
+        return res.status(400).json({ success: false, message: 'Complete shipping address and contact email are required for checkout' });
+      }
+
+      const guestEmail = shippingAddress.email.trim().toLowerCase();
+      const guestName = `${shippingAddress.firstName} ${shippingAddress.lastName || ''}`.trim();
+      const guestPhone = shippingAddress.phone || '';
+
+      const [existingUsers] = await conn.query('SELECT id FROM users WHERE email = ?', [guestEmail]);
+      if (existingUsers.length > 0) {
+        userId = existingUsers[0].id;
+      } else {
+        userId = cuid();
+        await conn.query(
+          'INSERT INTO users (id, name, email, phone, role) VALUES (?, ?, ?, ?, "CUSTOMER")',
+          [userId, guestName, guestEmail, guestPhone]
+        );
+      }
+
+      addressId = cuid();
+      await conn.query(
+        'INSERT INTO addresses (id, userId, name, phone, line1, line2, city, state, pincode, isDefault) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)',
+        [addressId, userId, guestName, guestPhone, shippingAddress.address, shippingAddress.apartment || null, shippingAddress.city, shippingAddress.state, shippingAddress.pincode]
+      );
+    } else if (!addressId && shippingAddress) {
+      // User is logged in but passed a new shipping address
+      const guestName = `${shippingAddress.firstName} ${shippingAddress.lastName || ''}`.trim();
+      addressId = cuid();
+      await conn.query(
+        'INSERT INTO addresses (id, userId, name, phone, line1, line2, city, state, pincode, isDefault) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)',
+        [addressId, userId, guestName, shippingAddress.phone || '', shippingAddress.address, shippingAddress.apartment || null, shippingAddress.city, shippingAddress.state, shippingAddress.pincode]
+      );
+    }
+
+    if (!addressId) {
+      await conn.rollback();
+      return res.status(400).json({ success: false, message: 'Valid delivery address is required' });
     }
 
     const [addrRows] = await conn.query('SELECT id FROM addresses WHERE id = ? AND userId = ?', [addressId, userId]);
-    if (addrRows.length === 0) return res.status(400).json({ success: false, message: 'Invalid address' });
+    if (addrRows.length === 0) {
+      await conn.rollback();
+      return res.status(400).json({ success: false, message: 'Invalid address for user' });
+    }
 
     let subtotal = 0;
     const orderItems = [];
@@ -55,10 +102,14 @@ const createOrder = async (req, res) => {
     const total = subtotal - discount + shippingCharge;
     const orderId = cuid();
 
+    const isPaidOnline = (paymentMethod === 'ONLINE' || paymentMethod === 'RAZORPAY') && Boolean(razorpayPaymentId);
+    const orderStatus = isPaidOnline ? 'CONFIRMED' : 'PENDING';
+    const paymentStatus = isPaidOnline ? 'PAID' : 'PENDING';
+
     await conn.query(
-      `INSERT INTO orders (id, userId, addressId, paymentMethod, couponCode, subtotal, discount, shippingCharge, total, status, paymentStatus)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', 'PENDING')`,
-      [orderId, userId, addressId, paymentMethod || null, couponCode || null, subtotal, discount, shippingCharge, total]
+      `INSERT INTO orders (id, userId, addressId, paymentMethod, razorpayOrderId, razorpayPaymentId, couponCode, subtotal, discount, shippingCharge, total, status, paymentStatus)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [orderId, userId, addressId, paymentMethod || null, razorpayOrderId || null, razorpayPaymentId || null, couponCode || null, subtotal, discount, shippingCharge, total, orderStatus, paymentStatus]
     );
 
     for (const oi of orderItems) {

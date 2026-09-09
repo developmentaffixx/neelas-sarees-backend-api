@@ -58,7 +58,7 @@ router.put('/me/password', authenticate, async (req, res) => {
 
 router.get('/me/addresses', authenticate, async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT * FROM addresses WHERE userId = ?', [req.user.id]);
+    const [rows] = await pool.query('SELECT * FROM addresses WHERE userId = ? ORDER BY isDefault DESC, createdAt DESC', [req.user.id]);
     res.json({ success: true, data: rows });
   } catch (error) { res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) }); }
 });
@@ -66,9 +66,15 @@ router.get('/me/addresses', authenticate, async (req, res) => {
 router.post('/me/addresses', authenticate, async (req, res) => {
   try {
     const { name, phone, line1, line2, city, state, pincode, isDefault = false } = req.body;
+    if (!name || !phone || !line1 || !city || !state || !pincode) {
+      return res.status(400).json({ success: false, message: 'All required address fields must be provided' });
+    }
     if (isDefault) await pool.query('UPDATE addresses SET isDefault = 0 WHERE userId = ?', [req.user.id]);
     const id = cuid();
-    await pool.query('INSERT INTO addresses (id, userId, name, phone, line1, line2, city, state, pincode, isDefault) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [id, req.user.id, name, phone, line1, line2 || null, city, state, pincode, isDefault ? 1 : 0]);
+    await pool.query(
+      'INSERT INTO addresses (id, userId, name, phone, line1, line2, city, state, pincode, isDefault) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [id, req.user.id, name, phone, line1, line2 || null, city, state, pincode, isDefault ? 1 : 0]
+    );
     const [rows] = await pool.query('SELECT * FROM addresses WHERE id = ?', [id]);
     res.status(201).json({ success: true, data: rows[0] });
   } catch (error) { res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) }); }
@@ -76,17 +82,20 @@ router.post('/me/addresses', authenticate, async (req, res) => {
 
 router.put('/me/addresses/:id', authenticate, async (req, res) => {
   try {
-    if (req.body.isDefault) await pool.query('UPDATE addresses SET isDefault = 0 WHERE userId = ?', [req.user.id]);
-    const fields = Object.keys(req.body).map(k => `${k} = ?`).join(', ');
-    await pool.query(`UPDATE addresses SET ${fields} WHERE id = ?`, [...Object.values(req.body), req.params.id]);
-    const [rows] = await pool.query('SELECT * FROM addresses WHERE id = ?', [req.params.id]);
+    const { name, phone, line1, line2, city, state, pincode, isDefault } = req.body;
+    if (isDefault) await pool.query('UPDATE addresses SET isDefault = 0 WHERE userId = ?', [req.user.id]);
+    await pool.query(
+      'UPDATE addresses SET name = ?, phone = ?, line1 = ?, line2 = ?, city = ?, state = ?, pincode = ?, isDefault = ? WHERE id = ? AND userId = ?',
+      [name, phone, line1, line2 || null, city, state, pincode, isDefault ? 1 : 0, req.params.id, req.user.id]
+    );
+    const [rows] = await pool.query('SELECT * FROM addresses WHERE id = ? AND userId = ?', [req.params.id, req.user.id]);
     res.json({ success: true, data: rows[0] });
   } catch (error) { res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) }); }
 });
 
 router.delete('/me/addresses/:id', authenticate, async (req, res) => {
   try {
-    await pool.query('DELETE FROM addresses WHERE id = ?', [req.params.id]);
+    await pool.query('DELETE FROM addresses WHERE id = ? AND userId = ?', [req.params.id, req.user.id]);
     res.json({ success: true, message: 'Address deleted' });
   } catch (error) { res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) }); }
 });

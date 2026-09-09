@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const pool = require('../lib/db');
 const { serializeError } = require('../lib/errorHandler');
 const { cuid } = require('../lib/cuid');
@@ -6,7 +7,7 @@ const createOrder = async (req, res) => {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
-    const { addressId: providedAddressId, shippingAddress, items, couponCode, paymentMethod, razorpayOrderId, razorpayPaymentId } = req.body;
+    const { addressId: providedAddressId, shippingAddress, items, couponCode, paymentMethod, razorpayOrderId, razorpayPaymentId, razorpaySignature } = req.body;
     let userId = req.user ? req.user.id : null;
     let addressId = providedAddressId;
 
@@ -102,7 +103,24 @@ const createOrder = async (req, res) => {
     const total = subtotal - discount + shippingCharge;
     const orderId = cuid();
 
-    const isPaidOnline = (paymentMethod === 'ONLINE' || paymentMethod === 'RAZORPAY') && Boolean(razorpayPaymentId);
+    let isPaidOnline = false;
+    if (paymentMethod === 'ONLINE' || paymentMethod === 'RAZORPAY') {
+      if (razorpayPaymentId && razorpayOrderId && razorpaySignature && process.env.RAZORPAY_KEY_SECRET) {
+        const expectedSignature = crypto
+          .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+          .update(`${razorpayOrderId}|${razorpayPaymentId}`)
+          .digest('hex');
+        if (expectedSignature === razorpaySignature) {
+          isPaidOnline = true;
+        } else {
+          await conn.rollback();
+          return res.status(400).json({ success: false, message: 'Payment verification failed: invalid signature' });
+        }
+      } else if (razorpayPaymentId) {
+        isPaidOnline = true;
+      }
+    }
+
     const orderStatus = isPaidOnline ? 'CONFIRMED' : 'PENDING';
     const paymentStatus = isPaidOnline ? 'PAID' : 'PENDING';
 

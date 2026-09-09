@@ -34,7 +34,7 @@ const cookieOptions = {
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',
   sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-  domain: process.env.NODE_ENV === 'production' ? '.neelassarees.com' : undefined,
+  domain: process.env.COOKIE_DOMAIN || undefined,
 };
 
 const register = async (req, res) => {
@@ -67,7 +67,7 @@ const register = async (req, res) => {
     await pool.query('UPDATE users SET refreshToken = ? WHERE id = ?', [refreshToken, id]);
 
     res
-      .cookie('accessToken', accessToken, { ...cookieOptions, maxAge: 15 * 60 * 1000 })
+      .cookie('accessToken', accessToken, { ...cookieOptions, maxAge: 2 * 60 * 60 * 1000 })
       .cookie('refreshToken', refreshToken, { ...cookieOptions, maxAge: 7 * 24 * 60 * 60 * 1000 })
       .status(201)
       .json({
@@ -104,7 +104,7 @@ const login = async (req, res) => {
     await pool.query('UPDATE users SET refreshToken = ? WHERE id = ?', [refreshToken, user.id]);
 
     res
-      .cookie('accessToken', accessToken, { ...cookieOptions, maxAge: 15 * 60 * 1000 })
+      .cookie('accessToken', accessToken, { ...cookieOptions, maxAge: 2 * 60 * 60 * 1000 })
       .cookie('refreshToken', refreshToken, { ...cookieOptions, maxAge: 7 * 24 * 60 * 60 * 1000 })
       .json({
         success: true,
@@ -121,15 +121,17 @@ const logout = async (req, res) => {
   try {
     const refreshToken = req.cookies?.refreshToken;
     if (refreshToken) {
-      const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
-      await pool.query('UPDATE users SET refreshToken = NULL WHERE id = ?', [decoded.id]);
+      try {
+        const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
+        await pool.query('UPDATE users SET refreshToken = NULL WHERE id = ?', [decoded.id]);
+      } catch {}
     }
     res
-      .clearCookie('accessToken')
-      .clearCookie('refreshToken')
+      .clearCookie('accessToken', cookieOptions)
+      .clearCookie('refreshToken', cookieOptions)
       .json({ success: true, message: 'Logged out successfully' });
   } catch {
-    res.clearCookie('accessToken').clearCookie('refreshToken').json({ success: true });
+    res.clearCookie('accessToken', cookieOptions).clearCookie('refreshToken', cookieOptions).json({ success: true });
   }
 };
 
@@ -152,9 +154,9 @@ const refreshToken = async (req, res) => {
     await pool.query('UPDATE users SET refreshToken = ? WHERE id = ?', [newRefresh, user.id]);
 
     res
-      .cookie('accessToken', accessToken, { ...cookieOptions, maxAge: 15 * 60 * 1000 })
+      .cookie('accessToken', accessToken, { ...cookieOptions, maxAge: 2 * 60 * 60 * 1000 })
       .cookie('refreshToken', newRefresh, { ...cookieOptions, maxAge: 7 * 24 * 60 * 60 * 1000 })
-      .json({ success: true, accessToken });
+      .json({ success: true, accessToken, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
   } catch {
     res.status(401).json({ success: false, message: 'Invalid or expired refresh token' });
   }
@@ -276,7 +278,7 @@ const googleAuth = async (req, res) => {
     await pool.query('UPDATE users SET refreshToken = ? WHERE id = ?', [newRefresh, user.id]);
 
     res
-      .cookie('accessToken', accessToken, { ...cookieOptions, maxAge: 15 * 60 * 1000 })
+      .cookie('accessToken', accessToken, { ...cookieOptions, maxAge: 2 * 60 * 60 * 1000 })
       .cookie('refreshToken', newRefresh, { ...cookieOptions, maxAge: 7 * 24 * 60 * 60 * 1000 })
       .json({
         success: true,

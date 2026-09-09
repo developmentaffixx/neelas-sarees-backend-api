@@ -42,7 +42,7 @@ const allowedOrigins = [
   'https://poc.affixxmedia.com',
 ].filter(Boolean);
 
-app.use(cors({
+const corsOptions = {
   origin: (origin, callback) => {
     // Allow server-to-server or tools with no origin header
     if (!origin) return callback(null, true);
@@ -59,8 +59,10 @@ app.use(cors({
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
-}));
-app.options('*', cors());
+};
+
+app.use(cors(corsOptions));
+app.options(/(.*)/, cors(corsOptions));
 app.use(morgan('dev'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -94,6 +96,15 @@ app.get('/api/health', (_req, res) => {
 // 404 handler
 app.use((_req, res) => {
   res.status(404).json({ success: false, message: 'Route not found' });
+});
+
+// Error handler
+app.use((err, _req, res, _next) => {
+  console.error('Unhandled server error:', err);
+  res.status(err.status || 500).json({
+    success: false,
+    message: err.message || 'Internal Server Error'
+  });
 });
 
 app.listen(PORT, () => {

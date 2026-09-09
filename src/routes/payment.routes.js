@@ -2,7 +2,7 @@ const { Router } = require('express');
 const Razorpay = require('razorpay');
 const crypto = require('crypto');
 const pool = require('../lib/db');
-const { optionalAuthenticate } = require('../middleware/auth.middleware');
+const { authenticate, optionalAuthenticate } = require('../middleware/auth.middleware');
 
 const router = Router();
 

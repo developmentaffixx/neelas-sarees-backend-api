@@ -3,6 +3,25 @@ const pool = require('../lib/db');
 const { serializeError } = require('../lib/errorHandler');
 const { cuid } = require('../lib/cuid');
 
+function parseImages(val) {
+  if (!val) return [];
+  if (Array.isArray(val)) return val;
+  if (typeof val === 'string') {
+    const trimmed = val.trim();
+    if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        return Array.isArray(parsed) ? parsed : [parsed];
+      } catch {}
+    }
+    if (trimmed.includes(',')) {
+      return trimmed.split(',').map(s => s.trim()).filter(Boolean);
+    }
+    return [trimmed];
+  }
+  return [];
+}
+
 const createOrder = async (req, res) => {
   const conn = await pool.getConnection();
   try {
@@ -10,6 +29,11 @@ const createOrder = async (req, res) => {
     const { addressId: providedAddressId, shippingAddress, items, couponCode, paymentMethod, razorpayOrderId, razorpayPaymentId, razorpaySignature } = req.body;
     let userId = req.user ? req.user.id : null;
     let addressId = providedAddressId;
+
+    if (paymentMethod === 'COD') {
+      await conn.rollback();
+      return res.status(400).json({ success: false, message: 'Cash on Delivery is no longer accepted. Please pay online via UPI, Card, or Net Banking.' });
+    }
 
     if (!items || !Array.isArray(items) || items.length === 0) {
       await conn.rollback();
@@ -33,8 +57,8 @@ const createOrder = async (req, res) => {
       } else {
         userId = cuid();
         await conn.query(
-          'INSERT INTO users (id, name, email, phone, role) VALUES (?, ?, ?, ?, "CUSTOMER")',
-          [userId, guestName, guestEmail, guestPhone]
+          'INSERT INTO users (id, name, email, password, phone, role) VALUES (?, ?, ?, ?, ?, "CUSTOMER")',
+          [userId, guestName, guestEmail, '', guestPhone]
         );
       }
 
@@ -79,8 +103,9 @@ const createOrder = async (req, res) => {
         return res.status(400).json({ success: false, message: `Insufficient stock for: ${product.name}` });
       }
       subtotal += product.price * item.quantity;
-      const images = product.images ? JSON.parse(product.images) : [];
-      orderItems.push({ id: cuid(), productId: product.id, quantity: item.quantity, price: product.price, name: product.name, image: images[0] || '' });
+      const images = parseImages(product.images);
+      const itemImage = (images[0] || '').slice(0, 191);
+      orderItems.push({ id: cuid(), productId: product.id, quantity: item.quantity, price: product.price, name: product.name, image: itemImage });
     }
 
     let discount = 0;

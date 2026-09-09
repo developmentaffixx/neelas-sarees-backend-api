@@ -7,8 +7,8 @@ const { authenticate, optionalAuthenticate } = require('../middleware/auth.middl
 const router = Router();
 
 const getRazorpayInstance = () => {
-  const key_id = process.env.RAZORPAY_KEY_ID;
-  const key_secret = process.env.RAZORPAY_KEY_SECRET;
+  const key_id = (process.env.RAZORPAY_KEY_ID || '').trim();
+  const key_secret = (process.env.RAZORPAY_KEY_SECRET || '').trim();
 
   if (!key_id || !key_secret || key_id.includes('your_razorpay') || key_secret.includes('your_razorpay')) {
     return null;
@@ -43,14 +43,16 @@ router.post('/create-order', optionalAuthenticate, async (req, res) => {
         orderId: order.id,
         amount: order.amount,
         currency: order.currency,
-        key: process.env.RAZORPAY_KEY_ID,
+        key: (process.env.RAZORPAY_KEY_ID || '').trim(),
       },
     });
   } catch (error) {
     console.error('Razorpay create-order error:', error);
+    const description = error?.error?.description || error?.message || 'Failed to create payment order';
     res.status(500).json({
       success: false,
-      message: error?.error?.description || error.message || 'Failed to create payment order',
+      message: description,
+      code: error?.error?.code || 'PAYMENT_CREATION_FAILED',
     });
   }
 });
@@ -62,7 +64,7 @@ router.post('/verify', optionalAuthenticate, async (req, res) => {
       return res.status(400).json({ success: false, message: 'Missing payment details' });
     }
 
-    const key_secret = process.env.RAZORPAY_KEY_SECRET;
+    const key_secret = (process.env.RAZORPAY_KEY_SECRET || '').trim();
     if (!key_secret) {
       return res.status(500).json({ success: false, message: 'Razorpay secret not configured' });
     }
@@ -107,6 +109,8 @@ router.post('/verify', optionalAuthenticate, async (req, res) => {
 
 router.get('/:paymentId', authenticate, async (req, res) => {
   try {
+    const razorpay = getRazorpayInstance();
+    if (!razorpay) return res.status(503).json({ success: false, message: 'Razorpay not configured' });
     const payment = await razorpay.payments.fetch(req.params.paymentId);
     res.json({ success: true, data: payment });
   } catch (error) { res.status(500).json({ success: false, message: 'Failed to fetch payment details' }); }

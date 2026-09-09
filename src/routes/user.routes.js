@@ -21,7 +21,15 @@ router.get('/me', authenticate, async (req, res) => {
 router.put('/me', authenticate, async (req, res) => {
   try {
     const { name, phone } = req.body;
-    await pool.query('UPDATE users SET name = ?, phone = ? WHERE id = ?', [name, phone || null, req.user.id]);
+
+    if (!name || typeof name !== 'string' || name.trim().length < 2) {
+      return res.status(400).json({ success: false, message: 'Name must be at least 2 characters' });
+    }
+    if (phone && !/^[0-9+\s\-()]{7,20}$/.test(phone.trim())) {
+      return res.status(400).json({ success: false, message: 'Please enter a valid contact number' });
+    }
+
+    await pool.query('UPDATE users SET name = ?, phone = ? WHERE id = ?', [name.trim(), phone ? phone.trim() : null, req.user.id]);
     const [rows] = await pool.query(
       "SELECT id, name, email, phone, role, googleId, orderCount, createdAt, (password IS NOT NULL AND password != '') AS hasPassword FROM users WHERE id = ?",
       [req.user.id]
@@ -83,10 +91,30 @@ router.post('/me/addresses', authenticate, async (req, res) => {
 router.put('/me/addresses/:id', authenticate, async (req, res) => {
   try {
     const { name, phone, line1, line2, city, state, pincode, isDefault } = req.body;
+
+    if (!name || !name.trim()) {
+      return res.status(400).json({ success: false, message: 'Contact name is required' });
+    }
+    if (!phone || !/^[6-9]\d{9}$/.test(phone.replace(/\s/g, ''))) {
+      return res.status(400).json({ success: false, message: 'Valid 10-digit mobile number required' });
+    }
+    if (!line1 || !line1.trim()) {
+      return res.status(400).json({ success: false, message: 'Street address is required' });
+    }
+    if (!city || !city.trim()) {
+      return res.status(400).json({ success: false, message: 'City is required' });
+    }
+    if (!state || !state.trim()) {
+      return res.status(400).json({ success: false, message: 'State is required' });
+    }
+    if (!pincode || !/^\d{6}$/.test(pincode.trim())) {
+      return res.status(400).json({ success: false, message: 'Valid 6-digit PIN code required' });
+    }
+
     if (isDefault) await pool.query('UPDATE addresses SET isDefault = 0 WHERE userId = ?', [req.user.id]);
     await pool.query(
       'UPDATE addresses SET name = ?, phone = ?, line1 = ?, line2 = ?, city = ?, state = ?, pincode = ?, isDefault = ? WHERE id = ? AND userId = ?',
-      [name, phone, line1, line2 || null, city, state, pincode, isDefault ? 1 : 0, req.params.id, req.user.id]
+      [name.trim(), phone.replace(/\s/g, ''), line1.trim(), line2 ? line2.trim() : null, city.trim(), state.trim(), pincode.trim(), isDefault ? 1 : 0, req.params.id, req.user.id]
     );
     const [rows] = await pool.query('SELECT * FROM addresses WHERE id = ? AND userId = ?', [req.params.id, req.user.id]);
     res.json({ success: true, data: rows[0] });

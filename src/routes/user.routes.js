@@ -4,8 +4,16 @@ const pool = require('../lib/db');
 const { authenticate } = require('../middleware/auth.middleware');
 const { cuid } = require('../lib/cuid');
 const bcrypt = require('bcryptjs');
+const nodemailer = require('nodemailer');
 
 const router = Router();
+
+const mailer = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: Number(process.env.SMTP_PORT) || 587,
+  secure: false,
+  auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+});
 
 router.get('/me', authenticate, async (req, res) => {
   try {
@@ -59,7 +67,43 @@ router.put('/me/password', authenticate, async (req, res) => {
     }
 
     const hashed = await bcrypt.hash(newPassword, 12);
-    await pool.query('UPDATE users SET password = ? WHERE id = ?', [hashed, req.user.id]);
+    await pool.query('UPDATE users SET password = ? WHERE id = ?', [hashed, user.id]);
+
+    const action = hasExistingPassword ? 'changed' : 'set';
+    const subject = hasExistingPassword
+      ? `Your Neela's Sarees password was changed`
+      : `Password set for your Neela's Sarees account`;
+
+    const now = new Date().toLocaleString('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      dateStyle: 'long',
+      timeStyle: 'short',
+    });
+
+    // Fire-and-forget — don't fail the request if email fails
+    mailer.sendMail({
+      from: process.env.SMTP_FROM,
+      to: user.email,
+      subject,
+      html: `
+        <div style="font-family:sans-serif;max-width:480px;margin:auto;padding:32px;">
+          <h2 style="color:#92400e;margin-bottom:8px;">Password ${action === 'set' ? 'Set' : 'Changed'}</h2>
+          <p style="color:#57534e;">Hi ${user.name},</p>
+          <p style="color:#57534e;">
+            Your Neela's Sarees account password was successfully <strong>${action}</strong> on <strong>${now} IST</strong>.
+          </p>
+          <p style="color:#57534e;">If you made this change, no further action is needed.</p>
+          <p style="color:#b91c1c;font-weight:600;">
+            If you did not ${action} your password, please
+            <a href="${process.env.FRONTEND_URL}/auth/forgot-password" style="color:#b91c1c;">reset it immediately</a>
+            and contact us.
+          </p>
+          <hr style="border:none;border-top:1px solid #e7e5e4;margin:24px 0;" />
+          <p style="color:#a8a29e;font-size:12px;">Neela's Sarees &mdash; ${process.env.FRONTEND_URL}</p>
+        </div>
+      `,
+    }).catch(() => {}); // swallow email errors silently
+
     res.json({ success: true, message: hasExistingPassword ? 'Password updated successfully' : 'Password set successfully' });
   } catch (error) { res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) }); }
 });

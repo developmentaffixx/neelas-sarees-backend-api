@@ -24,7 +24,7 @@ router.post('/', authenticate, authorizeAdmin, upload.array('images', 10), async
       files.map(file =>
         new Promise((resolve, reject) => {
           cloudinary.uploader.upload_stream(
-            { folder: 'neelas-sarees', resource_type: 'image' },
+            { folder: 'Neelas Sarees - Products', resource_type: 'image' },
             (error, result) => { if (error) reject(error); else resolve(result.secure_url); }
           ).end(file.buffer);
         })

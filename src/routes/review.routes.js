@@ -29,7 +29,7 @@ router.post('/', authenticate, async (req, res) => {
     if (orderCheck.length === 0) return res.status(403).json({ success: false, message: 'You can only review products you have purchased' });
     const [existingReview] = await pool.query('SELECT id FROM reviews WHERE userId = ? AND productId = ?', [userId, productId]);
     if (existingReview.length > 0) return res.status(400).json({ success: false, message: 'You have already reviewed this product' });
-    const id = cuid();
+    const id = cuid('rev_');
     await pool.query('INSERT INTO reviews (id, userId, productId, rating, title, body, images, isApproved) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [id, userId, productId, rating, title || null, body, images ? JSON.stringify(images) : null, 0]);
     const [rows] = await pool.query('SELECT * FROM reviews WHERE id = ?', [id]);
     res.status(201).json({ success: true, data: rows[0], message: 'Review submitted! It will appear after approval.' });

@@ -31,7 +31,7 @@ router.get('/admin/all', authenticate, authorizeAdmin, async (_req, res) => {
 
 router.post('/', authenticate, authorizeAdmin, async (req, res) => {
   try {
-    const id = cuid();
+    const id = cuid('cat_');
     const { name, type, image, description, isActive = true } = req.body;
 
     // Auto-generate slug, append suffix on conflict

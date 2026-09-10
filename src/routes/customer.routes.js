@@ -65,7 +65,7 @@ router.post('/groups', authenticate, authorizeAdmin, async (req, res) => {
   try {
     const { name, description, color, isAutomatic, rules } = req.body;
     if (!name) return res.status(400).json({ success: false, message: 'Group name is required' });
-    const id = cuid();
+    const id = cuid('grp_');
     await pool.query(
       'INSERT INTO customer_groups (id, name, description, color, isAutomatic, rules) VALUES (?, ?, ?, ?, ?, ?)',
       [id, name, description || null, color || '#6b7280', isAutomatic ? 1 : 0, rules ? JSON.stringify(rules) : null]
@@ -91,7 +91,7 @@ router.post('/groups/:groupId/members', authenticate, authorizeAdmin, async (req
       if (existing.length === 0) {
         await pool.query(
           'INSERT INTO customer_group_members (id, groupId, userId) VALUES (?, ?, ?)',
-          [cuid(), groupId, userId]
+          [cuid('cgm_'), groupId, userId]
         );
       }
     }

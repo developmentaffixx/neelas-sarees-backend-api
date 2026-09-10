@@ -50,7 +50,7 @@ router.post('/', authenticate, async (req, res) => {
     if (existing.length > 0) {
       await pool.query('UPDATE cart_items SET quantity = quantity + ? WHERE userId = ? AND productId = ?', [quantity, userId, productId]);
     } else {
-      await pool.query('INSERT INTO cart_items (id, userId, productId, quantity) VALUES (?, ?, ?, ?)', [cuid(), userId, productId, quantity]);
+      await pool.query('INSERT INTO cart_items (id, userId, productId, quantity) VALUES (?, ?, ?, ?)', [cuid('cart_'), userId, productId, quantity]);
     }
     const [rows] = await pool.query(
       `SELECT ci.*, p.id as prod_id, p.name as prod_name, p.price, p.images, p.stock

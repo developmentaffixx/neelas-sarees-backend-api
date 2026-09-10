@@ -40,7 +40,7 @@ router.post('/adjust', authenticate, authorizeAdmin, async (req, res) => {
     else if (['REMOVE', 'DAMAGE'].includes(type)) newStock = Math.max(0, currentStock - Math.abs(quantity));
     else newStock = Math.max(0, quantity);
     await pool.query('UPDATE products SET stock = ?, updatedAt = NOW() WHERE id = ?', [newStock, productId]);
-    await pool.query(`INSERT INTO stock_adjustments (id, productId, type, quantity, previousStock, newStock, reason, adjustedBy) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [cuid(), productId, type, Math.abs(quantity), currentStock, newStock, reason || null, req.user.id]);
+    await pool.query(`INSERT INTO stock_adjustments (id, productId, type, quantity, previousStock, newStock, reason, adjustedBy) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [cuid('adj_'), productId, type, Math.abs(quantity), currentStock, newStock, reason || null, req.user.id]);
     res.json({ success: true, data: { productId, previousStock: currentStock, newStock, type, quantity: Math.abs(quantity) } });
   } catch (error) { res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) }); }
 });

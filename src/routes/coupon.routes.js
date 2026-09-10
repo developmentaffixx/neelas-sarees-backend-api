@@ -66,7 +66,7 @@ router.get('/', authenticate, authorizeAdmin, async (_req, res) => {
 
 router.post('/', authenticate, authorizeAdmin, async (req, res) => {
   try {
-    const id = cuid();
+    const id = cuid('coup_');
     const { code, description, displayTitle, type, value, minOrderValue = 0, maxUses, isActive = true, autoApply = false, trigger = 'MANUAL', thresholdMin, thresholdMax, loyaltyOrderCount, priority = 0, expiresAt } = req.body;
     await pool.query(`INSERT INTO coupons (id, code, description, displayTitle, type, value, minOrderValue, maxUses, isActive, autoApply, \`trigger\`, thresholdMin, thresholdMax, loyaltyOrderCount, priority, expiresAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [id, code, description || null, displayTitle || null, type, value, minOrderValue, maxUses || null, isActive ? 1 : 0, autoApply ? 1 : 0, trigger, thresholdMin || null, thresholdMax || null, loyaltyOrderCount || null, priority, expiresAt || null]);
     const [rows] = await pool.query('SELECT * FROM coupons WHERE id = ?', [id]);

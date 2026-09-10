@@ -122,7 +122,7 @@ router.post('/me/addresses', authenticate, async (req, res) => {
       return res.status(400).json({ success: false, message: 'All required address fields must be provided' });
     }
     if (isDefault) await pool.query('UPDATE addresses SET isDefault = 0 WHERE userId = ?', [req.user.id]);
-    const id = cuid();
+    const id = cuid('addr_');
     await pool.query(
       'INSERT INTO addresses (id, userId, name, phone, line1, line2, city, state, pincode, isDefault) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [id, req.user.id, name, phone, line1, line2 || null, city, state, pincode, isDefault ? 1 : 0]

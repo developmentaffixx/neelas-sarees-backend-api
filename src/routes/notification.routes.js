@@ -29,7 +29,7 @@ router.post('/templates', authenticate, authorizeAdmin, async (req, res) => {
   try {
     const { name, type, event, subject, body, variables, isActive } = req.body;
     if (!name || !type || !event || !body) return res.status(400).json({ success: false, message: 'name, type, event, and body are required' });
-    const id = cuid();
+    const id = cuid('tmpl_');
     await pool.query(`INSERT INTO notification_templates (id, name, type, event, subject, body, variables, isActive) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [id, name, type, event, subject || null, body, variables ? JSON.stringify(variables) : null, isActive !== false ? 1 : 0]);
     const [rows] = await pool.query('SELECT * FROM notification_templates WHERE id = ?', [id]);
     res.status(201).json({ success: true, data: rows[0] });

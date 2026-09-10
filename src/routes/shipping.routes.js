@@ -17,7 +17,7 @@ router.post('/partners', authenticate, authorizeAdmin, async (req, res) => {
   try {
     const { name, code, trackingUrl, contactPhone, contactEmail, isActive } = req.body;
     if (!name || !code) return res.status(400).json({ success: false, message: 'name and code are required' });
-    const id = cuid();
+    const id = cuid('ship_');
     await pool.query('INSERT INTO shipping_partners (id, name, code, trackingUrl, contactPhone, contactEmail, isActive) VALUES (?, ?, ?, ?, ?, ?, ?)', [id, name, code.toUpperCase(), trackingUrl || null, contactPhone || null, contactEmail || null, isActive !== false ? 1 : 0]);
     const [rows] = await pool.query('SELECT * FROM shipping_partners WHERE id = ?', [id]);
     res.status(201).json({ success: true, data: rows[0] });

@@ -57,7 +57,7 @@ const register = async (req, res) => {
     }
 
     const hashedPassword = await bcrypt.hash(password, 12);
-    const id = cuid();
+    const id = cuid('usr_');
     await pool.query(
       'INSERT INTO users (id, name, email, password, phone, role, isVerified) VALUES (?, ?, ?, ?, ?, ?, ?)',
       [id, name, email, hashedPassword, phone || null, 'CUSTOMER', false]
@@ -266,7 +266,7 @@ const googleAuth = async (req, res) => {
       }
     } else {
       // Create new user from Google profile
-      const id = cuid();
+      const id = cuid('usr_');
       await pool.query(
         'INSERT INTO users (id, name, email, password, googleId, role, isVerified) VALUES (?, ?, ?, ?, ?, ?, ?)',
         [id, name, email, '', googleId, 'CUSTOMER', true]

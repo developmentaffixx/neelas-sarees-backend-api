@@ -55,14 +55,14 @@ const createOrder = async (req, res) => {
       if (existingUsers.length > 0) {
         userId = existingUsers[0].id;
       } else {
-        userId = cuid();
+        userId = cuid('usr_');
         await conn.query(
           'INSERT INTO users (id, name, email, password, phone, role) VALUES (?, ?, ?, ?, ?, "CUSTOMER")',
           [userId, guestName, guestEmail, '', guestPhone]
         );
       }
 
-      addressId = cuid();
+      addressId = cuid('addr_');
       await conn.query(
         'INSERT INTO addresses (id, userId, name, phone, line1, line2, city, state, pincode, isDefault) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)',
         [addressId, userId, guestName, guestPhone, shippingAddress.address, shippingAddress.apartment || null, shippingAddress.city, shippingAddress.state, shippingAddress.pincode]
@@ -70,7 +70,7 @@ const createOrder = async (req, res) => {
     } else if (!addressId && shippingAddress) {
       // User is logged in but passed a new shipping address
       const guestName = `${shippingAddress.firstName} ${shippingAddress.lastName || ''}`.trim();
-      addressId = cuid();
+      addressId = cuid('addr_');
       await conn.query(
         'INSERT INTO addresses (id, userId, name, phone, line1, line2, city, state, pincode, isDefault) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)',
         [addressId, userId, guestName, shippingAddress.phone || '', shippingAddress.address, shippingAddress.apartment || null, shippingAddress.city, shippingAddress.state, shippingAddress.pincode]
@@ -105,7 +105,7 @@ const createOrder = async (req, res) => {
       subtotal += product.price * item.quantity;
       const images = parseImages(product.images);
       const itemImage = (images[0] || '').slice(0, 191);
-      orderItems.push({ id: cuid(), productId: product.id, quantity: item.quantity, price: product.price, name: product.name, image: itemImage });
+      orderItems.push({ id: cuid('oi_'), productId: product.id, quantity: item.quantity, price: product.price, name: product.name, image: itemImage });
     }
 
     let discount = 0;
@@ -126,7 +126,7 @@ const createOrder = async (req, res) => {
 
     const shippingCharge = subtotal - discount >= 999 ? 0 : 99;
     const total = subtotal - discount + shippingCharge;
-    const orderId = cuid();
+    const orderId = cuid('ord_');
 
     let isPaidOnline = false;
     if (paymentMethod === 'ONLINE' || paymentMethod === 'RAZORPAY') {
@@ -168,7 +168,7 @@ const createOrder = async (req, res) => {
 
     if (couponId) {
       await conn.query('UPDATE coupons SET usedCount = usedCount + 1 WHERE id = ?', [couponId]);
-      await conn.query('INSERT INTO coupon_usage (id, userId, couponId, orderId) VALUES (?, ?, ?, ?)', [cuid(), userId, couponId, orderId]);
+      await conn.query('INSERT INTO coupon_usage (id, userId, couponId, orderId) VALUES (?, ?, ?, ?)', [cuid('cu_'), userId, couponId, orderId]);
     }
 
     await conn.query('UPDATE users SET orderCount = COALESCE(orderCount, 0) + 1 WHERE id = ?', [userId]);

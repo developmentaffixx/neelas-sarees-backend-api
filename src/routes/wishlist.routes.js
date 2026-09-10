@@ -25,7 +25,7 @@ router.post('/', authenticate, async (req, res) => {
       await pool.query('DELETE FROM wishlists WHERE id = ?', [existing[0].id]);
       return res.json({ success: true, message: 'Removed from wishlist', added: false });
     }
-    await pool.query('INSERT INTO wishlists (id, userId, productId) VALUES (?, ?, ?)', [cuid(), userId, productId]);
+    await pool.query('INSERT INTO wishlists (id, userId, productId) VALUES (?, ?, ?)', [cuid('wsh_'), userId, productId]);
     res.json({ success: true, message: 'Added to wishlist', added: true });
   } catch (error) { res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) }); }
 });

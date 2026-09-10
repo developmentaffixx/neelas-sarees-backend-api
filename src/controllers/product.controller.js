@@ -224,7 +224,7 @@ const createProduct = async (req, res) => {
       return res.status(400).json({ success: false, message: 'SKU already exists' });
     }
 
-    const id = cuid();
+    const id = cuid('prd_');
     await conn.query(
       `INSERT INTO products (id, name, slug, description, price, comparePrice, sku, stock, images,
         fabric, occasion, color, blouseIncluded, careInstructions, isFeatured, isActive, categoryId)
@@ -239,7 +239,7 @@ const createProduct = async (req, res) => {
     for (let i = 0; i < variants.length; i++) {
       const v = variants[i];
       if (!v.colorName) continue;
-      const vid = cuid();
+      const vid = cuid('var_');
       await conn.query(
         `INSERT INTO product_color_variants (id, productId, colorName, colorHex, images, stock, sortOrder)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -313,7 +313,7 @@ const updateProduct = async (req, res) => {
           );
         } else {
           // Insert new
-          const vid = cuid();
+          const vid = cuid('var_');
           await conn.query(
             `INSERT INTO product_color_variants (id, productId, colorName, colorHex, images, stock, sortOrder)
              VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -410,7 +410,7 @@ const addVariant = async (req, res) => {
     const [prod] = await pool.query('SELECT id FROM products WHERE id = ?', [req.params.id]);
     if (!prod.length) return res.status(404).json({ success: false, message: 'Product not found' });
 
-    const id = cuid();
+    const id = cuid('var_');
     await pool.query(
       `INSERT INTO product_color_variants (id, productId, colorName, colorHex, images, stock, sortOrder)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,

@@ -22,7 +22,7 @@ router.get('/admin', authenticate, authorizeAdmin, async (_req, res) => {
 
 router.post('/', authenticate, authorizeAdmin, async (req, res) => {
   try {
-    const id = cuid();
+    const id = cuid('tst_');
     const { name, body, rating, avatar, designation, isActive, sortOrder } = req.body;
     await pool.query(`INSERT INTO testimonials (id, name, body, rating, avatar, designation, isActive, sortOrder) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [id, name, body, rating || 5, avatar || null, designation || 'Happy Customer', isActive !== false ? 1 : 0, sortOrder || 0]);
     const [rows] = await pool.query('SELECT * FROM testimonials WHERE id = ?', [id]);

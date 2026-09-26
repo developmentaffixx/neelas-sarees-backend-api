@@ -24,6 +24,7 @@ const inventoryRoutes = require('./src/routes/inventory.routes');
 const customerRoutes = require('./src/routes/customer.routes');
 const shippingRoutes = require('./src/routes/shipping.routes');
 const notificationRoutes = require('./src/routes/notification.routes');
+const manualInvoiceRoutes = require('./src/routes/manual-invoice.routes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -87,6 +88,7 @@ app.use('/api/inventory', inventoryRoutes);
 app.use('/api/customers', customerRoutes);
 app.use('/api/shipping', shippingRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/manual-invoices', manualInvoiceRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {

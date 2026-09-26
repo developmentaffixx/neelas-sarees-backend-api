@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS `manual_invoices` (
   `customer_address` TEXT DEFAULT NULL,
   `customer_gstin` VARCHAR(50) DEFAULT NULL,
   `payment_method` VARCHAR(50) DEFAULT 'Cash',
+  `transaction_id` VARCHAR(100) DEFAULT NULL,
   `payment_status` VARCHAR(50) DEFAULT 'Paid',
   `items` LONGTEXT NOT NULL,
   `subtotal` DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
@@ -19,12 +20,10 @@ CREATE TABLE IF NOT EXISTS `manual_invoices` (
   `shipping_charge` DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
   `grand_total` DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
   `notes` TEXT DEFAULT NULL,
-  `email_sent` TINYINT(1) NOT NULL DEFAULT 0,
-  `last_email_sent_at` DATETIME NULL DEFAULT NULL,
   `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   `updated_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
   PRIMARY KEY (`id`),
   INDEX `idx_invoice_number` (`invoice_number`),
-  INDEX `idx_customer_email` (`customer_email`),
+  INDEX `idx_customer_name` (`customer_name`),
   INDEX `idx_created_at` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

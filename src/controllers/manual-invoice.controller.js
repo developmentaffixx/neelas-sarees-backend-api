@@ -20,6 +20,7 @@ async function ensureTableExists() {
         \`customer_address\` TEXT DEFAULT NULL,
         \`customer_gstin\` VARCHAR(50) DEFAULT NULL,
         \`payment_method\` VARCHAR(50) DEFAULT 'Cash',
+        \`transaction_id\` VARCHAR(100) DEFAULT NULL,
         \`payment_status\` VARCHAR(50) DEFAULT 'Paid',
         \`items\` LONGTEXT NOT NULL,
         \`subtotal\` DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
@@ -35,10 +36,15 @@ async function ensureTableExists() {
         \`updated_at\` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
         PRIMARY KEY (\`id\`),
         INDEX \`idx_invoice_number\` (\`invoice_number\`),
-        INDEX \`idx_customer_email\` (\`customer_email\`),
+        INDEX \`idx_customer_name\` (\`customer_name\`),
         INDEX \`idx_created_at\` (\`created_at\`)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
+
+    try {
+      await pool.query('ALTER TABLE `manual_invoices` ADD COLUMN `transaction_id` VARCHAR(100) DEFAULT NULL AFTER `payment_method`');
+    } catch (_) {}
+
     tableInitialized = true;
   } catch (err) {
     console.error('Failed to auto-create manual_invoices table:', err.message);
@@ -184,6 +190,7 @@ const createManualInvoice = async (req, res) => {
       customerAddress,
       customerGstin,
       paymentMethod = 'Cash',
+      transactionId = null,
       paymentStatus = 'Paid',
       items = [],
       subtotal = 0,
@@ -223,14 +230,13 @@ const createManualInvoice = async (req, res) => {
         lastEmailSentAt = new Date();
       } catch (mailErr) {
         console.error('Failed to send invoice email during creation:', mailErr);
-        // Continue saving invoice even if email dispatch hit an error
       }
     }
 
     await pool.query(
       `INSERT INTO manual_invoices 
-        (id, invoice_number, invoice_date, due_date, customer_name, customer_email, customer_phone, customer_address, customer_gstin, payment_method, payment_status, items, subtotal, tax_rate, tax_amount, discount_amount, shipping_charge, grand_total, notes, email_sent, last_email_sent_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, invoice_number, invoice_date, due_date, customer_name, customer_email, customer_phone, customer_address, customer_gstin, payment_method, transaction_id, payment_status, items, subtotal, tax_rate, tax_amount, discount_amount, shipping_charge, grand_total, notes, email_sent, last_email_sent_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         invoiceNumber.trim(),
@@ -242,6 +248,7 @@ const createManualInvoice = async (req, res) => {
         customerAddress || null,
         customerGstin || null,
         paymentMethod,
+        paymentMethod === 'Cash' ? null : (transactionId ? transactionId.trim() : null),
         paymentStatus,
         itemsJson,
         Number(subtotal) || 0,
@@ -297,6 +304,7 @@ const getManualInvoices = async (_req, res) => {
         customerAddress: row.customer_address,
         customerGstin: row.customer_gstin,
         paymentMethod: row.payment_method,
+        transactionId: row.transaction_id,
         paymentStatus: row.payment_status,
         taxRate: Number(row.tax_rate) || 0,
         subtotal: Number(row.subtotal) || 0,
@@ -348,6 +356,7 @@ const getManualInvoiceById = async (req, res) => {
         customerAddress: row.customer_address,
         customerGstin: row.customer_gstin,
         paymentMethod: row.payment_method,
+        transactionId: row.transaction_id,
         paymentStatus: row.payment_status,
         taxRate: Number(row.tax_rate) || 0,
         subtotal: Number(row.subtotal) || 0,

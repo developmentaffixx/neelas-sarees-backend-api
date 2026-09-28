@@ -41,9 +41,21 @@ async function ensureTableExists() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
-    try {
-      await pool.query('ALTER TABLE `manual_invoices` ADD COLUMN `transaction_id` VARCHAR(100) DEFAULT NULL AFTER `payment_method`');
-    } catch (_) {}
+    const extraCols = [
+      'ALTER TABLE `manual_invoices` ADD COLUMN `transaction_id` VARCHAR(100) DEFAULT NULL AFTER `payment_method`',
+      'ALTER TABLE `manual_invoices` ADD COLUMN `seller_location` VARCHAR(255) DEFAULT NULL',
+      'ALTER TABLE `manual_invoices` ADD COLUMN `seller_landmark` VARCHAR(255) DEFAULT NULL',
+      'ALTER TABLE `manual_invoices` ADD COLUMN `seller_phone` VARCHAR(50) DEFAULT NULL',
+      'ALTER TABLE `manual_invoices` ADD COLUMN `seller_gstin` VARCHAR(50) DEFAULT NULL',
+      'ALTER TABLE `manual_invoices` ADD COLUMN `bank_account_holder` VARCHAR(191) DEFAULT NULL',
+      'ALTER TABLE `manual_invoices` ADD COLUMN `bank_name` VARCHAR(191) DEFAULT NULL',
+      'ALTER TABLE `manual_invoices` ADD COLUMN `bank_account_number` VARCHAR(100) DEFAULT NULL',
+      'ALTER TABLE `manual_invoices` ADD COLUMN `bank_ifsc` VARCHAR(50) DEFAULT NULL',
+      'ALTER TABLE `manual_invoices` ADD COLUMN `bank_branch` VARCHAR(191) DEFAULT NULL',
+    ];
+    for (const q of extraCols) {
+      try { await pool.query(q); } catch (_) {}
+    }
 
     tableInitialized = true;
   } catch (err) {
@@ -192,6 +204,15 @@ const createManualInvoice = async (req, res) => {
       paymentMethod = 'Cash',
       transactionId = null,
       paymentStatus = 'Paid',
+      sellerLocation = null,
+      sellerLandmark = null,
+      sellerPhone = null,
+      sellerGstin = null,
+      bankAccountHolder = null,
+      bankName = null,
+      bankAccountNumber = null,
+      bankIfsc = null,
+      bankBranch = null,
       items = [],
       subtotal = 0,
       taxRate = 5,
@@ -235,8 +256,8 @@ const createManualInvoice = async (req, res) => {
 
     await pool.query(
       `INSERT INTO manual_invoices 
-        (id, invoice_number, invoice_date, due_date, customer_name, customer_email, customer_phone, customer_address, customer_gstin, payment_method, transaction_id, payment_status, items, subtotal, tax_rate, tax_amount, discount_amount, shipping_charge, grand_total, notes, email_sent, last_email_sent_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, invoice_number, invoice_date, due_date, customer_name, customer_email, customer_phone, customer_address, customer_gstin, payment_method, transaction_id, payment_status, seller_location, seller_landmark, seller_phone, seller_gstin, bank_account_holder, bank_name, bank_account_number, bank_ifsc, bank_branch, items, subtotal, tax_rate, tax_amount, discount_amount, shipping_charge, grand_total, notes, email_sent, last_email_sent_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         invoiceNumber.trim(),
@@ -250,6 +271,15 @@ const createManualInvoice = async (req, res) => {
         paymentMethod,
         paymentMethod === 'Cash' ? null : (transactionId ? transactionId.trim() : null),
         paymentStatus,
+        sellerLocation || null,
+        sellerLandmark || null,
+        sellerPhone || null,
+        sellerGstin || null,
+        bankAccountHolder || null,
+        bankName || null,
+        bankAccountNumber || null,
+        bankIfsc || null,
+        bankBranch || null,
         itemsJson,
         Number(subtotal) || 0,
         Number(taxRate) || 0,
@@ -306,6 +336,15 @@ const getManualInvoices = async (_req, res) => {
         paymentMethod: row.payment_method,
         transactionId: row.transaction_id,
         paymentStatus: row.payment_status,
+        sellerLocation: row.seller_location,
+        sellerLandmark: row.seller_landmark,
+        sellerPhone: row.seller_phone,
+        sellerGstin: row.seller_gstin,
+        bankAccountHolder: row.bank_account_holder,
+        bankName: row.bank_name,
+        bankAccountNumber: row.bank_account_number,
+        bankIfsc: row.bank_ifsc,
+        bankBranch: row.bank_branch,
         taxRate: Number(row.tax_rate) || 0,
         subtotal: Number(row.subtotal) || 0,
         taxAmount: Number(row.tax_amount) || 0,
@@ -358,6 +397,15 @@ const getManualInvoiceById = async (req, res) => {
         paymentMethod: row.payment_method,
         transactionId: row.transaction_id,
         paymentStatus: row.payment_status,
+        sellerLocation: row.seller_location,
+        sellerLandmark: row.seller_landmark,
+        sellerPhone: row.seller_phone,
+        sellerGstin: row.seller_gstin,
+        bankAccountHolder: row.bank_account_holder,
+        bankName: row.bank_name,
+        bankAccountNumber: row.bank_account_number,
+        bankIfsc: row.bank_ifsc,
+        bankBranch: row.bank_branch,
         taxRate: Number(row.tax_rate) || 0,
         subtotal: Number(row.subtotal) || 0,
         taxAmount: Number(row.tax_amount) || 0,

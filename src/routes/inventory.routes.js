@@ -1,10 +1,14 @@
 const { Router } = require('express');
 const { serializeError } = require('../lib/errorHandler');
-function safeParseJSON(value, fallback) { if (fallback === undefined) fallback = []; if (!value) return fallback; if (Array.isArray(value)) return value; try { return JSON.parse(value); } catch (e) { return fallback; } }
 const pool = require('../lib/db');
 const { authenticate, authorizeAdmin } = require('../middleware/auth.middleware');
 const { cuid } = require('../lib/cuid');
-function safeParseJSON(value, fallback) { if (fallback === undefined) fallback = []; if (!value) return fallback; if (Array.isArray(value)) return value; try { return JSON.parse(value); } catch (e) { return fallback; } }
+
+function safeParseJSON(value, fallback = []) {
+  if (!value) return fallback;
+  if (Array.isArray(value)) return value;
+  try { return JSON.parse(value); } catch { return fallback; }
+}
 
 const router = Router();
 

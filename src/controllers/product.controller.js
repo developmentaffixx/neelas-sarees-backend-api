@@ -201,7 +201,8 @@ const createProduct = async (req, res) => {
       fabric, occasion, color, blouseIncluded, careInstructions, isFeatured, isActive,
       categoryId, colorVariants } = req.body;
 
-    if (!name || !description || !price || !sku || !fabric || !occasion || !color || !categoryId) {
+    // fabric, occasion, color are now optional
+    if (!name || !description || !price || !sku || !categoryId) {
       await conn.rollback();
       conn.release();
       return res.status(400).json({ success: false, message: 'Missing required fields' });
@@ -230,7 +231,7 @@ const createProduct = async (req, res) => {
         fabric, occasion, color, blouseIncluded, careInstructions, isFeatured, isActive, categoryId)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [id, name, slug, description, price, comparePrice ?? null, sku, stock ?? 0,
-        JSON.stringify(images ?? []), fabric, occasion, color,
+        JSON.stringify(images ?? []), fabric ?? '', occasion ?? '', color ?? '',
         blouseIncluded ? 1 : 0, careInstructions ?? null, isFeatured ? 1 : 0, isActive !== false ? 1 : 0, categoryId]
     );
 

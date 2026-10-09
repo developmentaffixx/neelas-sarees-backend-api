@@ -379,7 +379,7 @@ CREATE TABLE `products` (
   `occasion` varchar(191) NOT NULL,
   `color` varchar(191) NOT NULL,
   `blouseIncluded` tinyint(1) NOT NULL DEFAULT 0,
-  `careInstructions` varchar(191) DEFAULT NULL,
+  `careInstructions` text DEFAULT NULL,
   `isFeatured` tinyint(1) NOT NULL DEFAULT 0,
   `isActive` tinyint(1) NOT NULL DEFAULT 1,
   `categoryId` varchar(36) NOT NULL,

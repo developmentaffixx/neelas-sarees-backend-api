@@ -76,8 +76,19 @@ router.post('/', authenticate, authorizeAdmin, async (req, res) => {
 
 router.put('/:id', authenticate, authorizeAdmin, async (req, res) => {
   try {
-    const fields = Object.keys(req.body).map(k => `\`${k}\` = ?`).join(', ');
-    await pool.query(`UPDATE coupons SET ${fields} WHERE id = ?`, [...Object.values(req.body), req.params.id]);
+    // Whitelist allowed fields to prevent SQL injection via dynamic key names
+    const ALLOWED_FIELDS = [
+      'code', 'description', 'displayTitle', 'type', 'value', 'minOrderValue',
+      'maxUses', 'isActive', 'autoApply', 'trigger', 'thresholdMin', 'thresholdMax',
+      'loyaltyOrderCount', 'priority', 'expiresAt',
+    ];
+    const updates = Object.entries(req.body).filter(([k]) => ALLOWED_FIELDS.includes(k));
+    if (updates.length === 0) {
+      return res.status(400).json({ success: false, message: 'No valid fields to update' });
+    }
+    const fields = updates.map(([k]) => `\`${k}\` = ?`).join(', ');
+    const values = updates.map(([, v]) => v);
+    await pool.query(`UPDATE coupons SET ${fields} WHERE id = ?`, [...values, req.params.id]);
     const [rows] = await pool.query('SELECT * FROM coupons WHERE id = ?', [req.params.id]);
     res.json({ success: true, data: rows[0] });
   } catch (error) { res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) }); }

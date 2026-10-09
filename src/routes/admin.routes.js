@@ -9,7 +9,7 @@ router.get('/dashboard', authenticate, authorizeAdmin, async (_req, res) => {
   try {
     const [[totalOrdersRow], [revenueRow], [totalProductsRow], [totalUsersRow], recentOrdersRows] = await Promise.all([
       pool.query('SELECT COUNT(*) as count FROM orders'),
-      pool.query("SELECT SUM(total) as revenue FROM orders WHERE paymentStatus = 'PAID'"),
+      pool.query("SELECT SUM(total) as revenue FROM orders WHERE paymentStatus = 'PAID' AND status NOT IN ('CANCELLED', 'RETURNED')"),
       pool.query('SELECT COUNT(*) as count FROM products WHERE isActive = 1'),
       pool.query("SELECT COUNT(*) as count FROM users WHERE role = 'CUSTOMER'"),
       pool.query(`SELECT o.*, u.name as user_name, u.email as user_email FROM orders o JOIN users u ON o.userId = u.id ORDER BY o.createdAt DESC LIMIT 5`),

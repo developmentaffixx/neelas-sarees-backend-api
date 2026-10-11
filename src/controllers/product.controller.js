@@ -26,7 +26,10 @@ function parseProduct(row, variants = []) {
     price: row.price, comparePrice: row.comparePrice, sku: row.sku, stock: row.stock,
     images: safeParseJSON(row.images),
     fabric: row.fabric, occasion: row.occasion, color: row.color,
-    blouseIncluded: Boolean(row.blouseIncluded), careInstructions: row.careInstructions,
+    blouseIncluded: Boolean(row.blouseIncluded),
+    sareeLength: row.sareeLength || '',
+    blouseLength: row.blouseLength || '',
+    careInstructions: row.careInstructions,
     isFeatured: Boolean(row.isFeatured), isActive: Boolean(row.isActive),
     categoryId: row.categoryId, createdAt: row.createdAt, updatedAt: row.updatedAt,
     category: row.cat_id ? { id: row.cat_id, name: row.cat_name, slug: row.cat_slug, type: row.cat_type } : null,
@@ -198,7 +201,7 @@ const createProduct = async (req, res) => {
     await conn.beginTransaction();
 
     const { name, description, price, comparePrice, sku, stock, images,
-      fabric, occasion, color, blouseIncluded, careInstructions, isFeatured, isActive,
+      fabric, occasion, color, blouseIncluded, sareeLength, blouseLength, careInstructions, isFeatured, isActive,
       categoryId, colorVariants } = req.body;
 
     // fabric, occasion, color are now optional
@@ -226,13 +229,16 @@ const createProduct = async (req, res) => {
     }
 
     const id = cuid('prd_');
+    const safeSareeLength = (sareeLength && String(sareeLength).trim()) ? String(sareeLength).trim() : null;
+    const safeBlouseLength = blouseIncluded && (blouseLength && String(blouseLength).trim()) ? String(blouseLength).trim() : null;
+
     await conn.query(
       `INSERT INTO products (id, name, slug, description, price, comparePrice, sku, stock, images,
-        fabric, occasion, color, blouseIncluded, careInstructions, isFeatured, isActive, categoryId)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        fabric, occasion, color, blouseIncluded, sareeLength, blouseLength, careInstructions, isFeatured, isActive, categoryId)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [id, name, slug, description, price, comparePrice ?? null, sku, stock ?? 0,
         JSON.stringify(images ?? []), fabric ?? '', occasion ?? '', color ?? '',
-        blouseIncluded ? 1 : 0, careInstructions ?? null, isFeatured ? 1 : 0, isActive !== false ? 1 : 0, categoryId]
+        blouseIncluded ? 1 : 0, safeSareeLength, safeBlouseLength, careInstructions ?? null, isFeatured ? 1 : 0, isActive !== false ? 1 : 0, categoryId]
     );
 
     // Insert color variants if provided
@@ -268,7 +274,7 @@ const updateProduct = async (req, res) => {
     await conn.beginTransaction();
 
     const allowedFields = ['name', 'slug', 'description', 'price', 'comparePrice', 'sku', 'stock',
-      'images', 'fabric', 'occasion', 'color', 'blouseIncluded', 'careInstructions', 'isFeatured', 'isActive', 'categoryId'];
+      'images', 'fabric', 'occasion', 'color', 'blouseIncluded', 'sareeLength', 'blouseLength', 'careInstructions', 'isFeatured', 'isActive', 'categoryId'];
 
     const fields = {};
     for (const key of allowedFields) { if (key in req.body) fields[key] = req.body[key]; }
@@ -276,6 +282,12 @@ const updateProduct = async (req, res) => {
     if (Object.keys(fields).length > 0) {
       if (fields.images) fields.images = JSON.stringify(fields.images);
       if ('blouseIncluded' in fields) fields.blouseIncluded = fields.blouseIncluded ? 1 : 0;
+      if ('sareeLength' in fields) {
+        fields.sareeLength = (fields.sareeLength && String(fields.sareeLength).trim()) ? String(fields.sareeLength).trim() : null;
+      }
+      if ('blouseLength' in fields) {
+        fields.blouseLength = (fields.blouseLength && String(fields.blouseLength).trim()) ? String(fields.blouseLength).trim() : null;
+      }
       if ('isFeatured' in fields) fields.isFeatured = fields.isFeatured ? 1 : 0;
       if ('isActive' in fields) fields.isActive = fields.isActive ? 1 : 0;
 

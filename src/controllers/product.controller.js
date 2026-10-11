@@ -231,12 +231,15 @@ const createProduct = async (req, res) => {
     const id = cuid('prd_');
     const safeSareeLength = (sareeLength && String(sareeLength).trim()) ? String(sareeLength).trim() : null;
     const safeBlouseLength = blouseIncluded && (blouseLength && String(blouseLength).trim()) ? String(blouseLength).trim() : null;
+    const safeComparePrice = (comparePrice !== undefined && comparePrice !== null && comparePrice !== '' && Number(comparePrice) > 0)
+      ? Number(comparePrice)
+      : null;
 
     await conn.query(
       `INSERT INTO products (id, name, slug, description, price, comparePrice, sku, stock, images,
         fabric, occasion, color, blouseIncluded, sareeLength, blouseLength, careInstructions, isFeatured, isActive, categoryId)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, name, slug, description, price, comparePrice ?? null, sku, stock ?? 0,
+      [id, name, slug, description, price, safeComparePrice, sku, stock ?? 0,
         JSON.stringify(images ?? []), fabric ?? '', occasion ?? '', color ?? '',
         blouseIncluded ? 1 : 0, safeSareeLength, safeBlouseLength, careInstructions ?? null, isFeatured ? 1 : 0, isActive !== false ? 1 : 0, categoryId]
     );
@@ -282,6 +285,11 @@ const updateProduct = async (req, res) => {
     if (Object.keys(fields).length > 0) {
       if (fields.images) fields.images = JSON.stringify(fields.images);
       if ('blouseIncluded' in fields) fields.blouseIncluded = fields.blouseIncluded ? 1 : 0;
+      if ('comparePrice' in fields) {
+        fields.comparePrice = (fields.comparePrice !== undefined && fields.comparePrice !== null && fields.comparePrice !== '' && Number(fields.comparePrice) > 0)
+          ? Number(fields.comparePrice)
+          : null;
+      }
       if ('sareeLength' in fields) {
         fields.sareeLength = (fields.sareeLength && String(fields.sareeLength).trim()) ? String(fields.sareeLength).trim() : null;
       }

@@ -17,9 +17,23 @@ router.get('/types', authenticate, authorizeAdmin, async (_req, res) => {
 
 router.get('/', async (_req, res) => {
   try {
-    const [rows] = await pool.query('SELECT * FROM categories WHERE isActive = 1 ORDER BY sortOrder ASC');
+    const [rows] = await pool.query(`
+      SELECT c.*, COUNT(p.id) as productCount 
+      FROM categories c 
+      LEFT JOIN products p ON p.categoryId = c.id AND p.isActive = 1 
+      WHERE c.isActive = 1 
+      GROUP BY c.id 
+      ORDER BY c.sortOrder ASC
+    `);
     res.json({ success: true, data: rows });
-  } catch (error) { res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) }); }
+  } catch (error) {
+    try {
+      const [rows] = await pool.query('SELECT * FROM categories WHERE isActive = 1 ORDER BY sortOrder ASC');
+      res.json({ success: true, data: rows });
+    } catch (e) {
+      res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) });
+    }
+  }
 });
 
 router.get('/admin/all', authenticate, authorizeAdmin, async (_req, res) => {

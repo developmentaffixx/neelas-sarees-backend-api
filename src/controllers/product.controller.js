@@ -391,16 +391,38 @@ const bulkUpdateProducts = async (req, res) => {
   }
 };
 
-// ─── Admin: Check uniqueness ──────────────────────────────────────────────────
+// ─── Admin: Check uniqueness & search existing SKUs ────────────────────────────
 const checkProductUniqueness = async (req, res) => {
   try {
     const { field, value, excludeId } = req.query;
-    if (!field || !value || !['sku', 'slug'].includes(field)) return res.status(400).json({ success: false, message: 'Invalid field' });
-    let query = `SELECT id FROM products WHERE ${field} = ?`;
-    const params = [value];
+    if (!field || !value || !['sku', 'slug'].includes(field)) {
+      return res.status(400).json({ success: false, message: 'Invalid field' });
+    }
+    const val = String(value).trim();
+    let query = `SELECT id, name, sku FROM products WHERE ${field} = ?`;
+    const params = [val];
     if (excludeId) { query += ' AND id != ?'; params.push(excludeId); }
-    const [rows] = await pool.query(query, params);
-    res.json({ success: true, data: { exists: rows.length > 0 } });
+    const [exactRows] = await pool.query(query, params);
+
+    // If searching SKU, also find similar/existing SKUs for live suggestions
+    let similar = [];
+    if (field === 'sku' && val.length >= 2) {
+      let simQuery = `SELECT id, name, sku FROM products WHERE sku LIKE ?`;
+      const simParams = [`%${val}%`];
+      if (excludeId) { simQuery += ' AND id != ?'; simParams.push(excludeId); }
+      simQuery += ' ORDER BY sku ASC LIMIT 6';
+      const [simRows] = await pool.query(simQuery, simParams);
+      similar = simRows;
+    }
+
+    res.json({
+      success: true,
+      data: {
+        exists: exactRows.length > 0,
+        matchedProduct: exactRows[0] || null,
+        similar,
+      },
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) });
   }

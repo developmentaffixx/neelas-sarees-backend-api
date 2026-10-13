@@ -11,6 +11,12 @@ const router = Router();
 pool.query(`ALTER TABLE categories ADD COLUMN parentId VARCHAR(36) NULL DEFAULT NULL AFTER id`)
   .catch(() => {});
 
+// Auto-migrate sku and careInstructions for design templates
+pool.query(`ALTER TABLE categories ADD COLUMN sku VARCHAR(100) NULL DEFAULT NULL AFTER name`)
+  .catch(() => {});
+pool.query(`ALTER TABLE categories ADD COLUMN careInstructions TEXT NULL DEFAULT NULL AFTER description`)
+  .catch(() => {});
+
 // Make type column nullable and optional
 pool.query(`ALTER TABLE categories MODIFY COLUMN type VARCHAR(50) NULL DEFAULT NULL`)
   .catch(() => {});
@@ -63,8 +69,11 @@ router.get('/admin/all', authenticate, authorizeAdmin, async (_req, res) => {
 router.post('/', authenticate, authorizeAdmin, async (req, res) => {
   try {
     const id = await getNextNumericId('categories');
-    const { name, type, image, description, isActive = true, parentId = null } = req.body;
+    const { name, sku, type, image, description, careInstructions, isActive = true, parentId = null } = req.body;
     const cleanType = type && String(type).trim() !== '' ? String(type).trim() : null;
+    const cleanSku = sku && String(sku).trim() !== '' ? String(sku).trim() : null;
+    const cleanCare = careInstructions && String(careInstructions).trim() !== '' ? String(careInstructions).trim() : null;
+    const cleanDesc = description && String(description).trim() !== '' ? String(description).trim() : null;
 
     // Auto-generate slug, append suffix on conflict
     const baseSlug = name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -78,14 +87,14 @@ router.post('/', authenticate, authorizeAdmin, async (req, res) => {
 
     try {
       await pool.query(
-        'INSERT INTO categories (id, parentId, name, slug, type, image, description, isActive, sortOrder) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [id, parentId || null, name, slug, cleanType, image || null, description || null, isActive ? 1 : 0, 0]
+        'INSERT INTO categories (id, parentId, name, sku, slug, type, image, description, careInstructions, isActive, sortOrder) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [id, parentId || null, name, cleanSku, slug, cleanType, image || null, cleanDesc, cleanCare, isActive ? 1 : 0, 0]
       );
     } catch (err) {
-      // Fallback in case parentId column doesn't exist yet
+      // Fallback in case columns are still being added
       await pool.query(
         'INSERT INTO categories (id, name, slug, type, image, description, isActive, sortOrder) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [id, name, slug, cleanType, image || null, description || null, isActive ? 1 : 0, 0]
+        [id, name, slug, cleanType, image || null, cleanDesc, isActive ? 1 : 0, 0]
       );
     }
 
@@ -96,11 +105,11 @@ router.post('/', authenticate, authorizeAdmin, async (req, res) => {
 
 router.put('/:id', authenticate, authorizeAdmin, async (req, res) => {
   try {
-    const allowed = ['name', 'parentId', 'type', 'image', 'description', 'isActive', 'sortOrder'];
+    const allowed = ['name', 'sku', 'parentId', 'type', 'image', 'description', 'careInstructions', 'isActive', 'sortOrder'];
     const updateObj = {};
     for (const key of allowed) {
       if (req.body[key] !== undefined) {
-        if ((key === 'parentId' || key === 'type') && (req.body[key] === '' || req.body[key] === null)) {
+        if (['parentId', 'type', 'sku', 'careInstructions', 'description'].includes(key) && (req.body[key] === '' || req.body[key] === null)) {
           updateObj[key] = null;
         } else {
           updateObj[key] = req.body[key];

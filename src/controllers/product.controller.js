@@ -1,6 +1,10 @@
 const pool = require('../lib/db');
 const { cuid } = require('../lib/cuid');
+const { getNextNumericId } = require('../lib/nextId');
 const { serializeError } = require('../lib/errorHandler');
+
+// Non-blocking drop of products_sku_key so multiple color sarees can share the common design SKU
+pool.query('ALTER TABLE products DROP INDEX products_sku_key').catch(() => {});
 
 function safeParseJSON(value, fallback = []) {
   if (!value) return fallback;
@@ -221,14 +225,7 @@ const createProduct = async (req, res) => {
       slug = `${baseSlug}-${suffix++}`;
     }
 
-    const [existingSku] = await conn.query('SELECT id FROM products WHERE sku = ?', [sku]);
-    if (existingSku.length > 0) {
-      await conn.rollback();
-      conn.release();
-      return res.status(400).json({ success: false, message: 'SKU already exists' });
-    }
-
-    const id = cuid('prd_');
+    const id = await getNextNumericId('products', conn);
     const safeSareeLength = (sareeLength && String(sareeLength).trim()) ? String(sareeLength).trim() : null;
     const safeBlouseLength = blouseIncluded && (blouseLength && String(blouseLength).trim()) ? String(blouseLength).trim() : null;
     const safeComparePrice = (comparePrice !== undefined && comparePrice !== null && comparePrice !== '' && Number(comparePrice) > 0)
@@ -244,12 +241,19 @@ const createProduct = async (req, res) => {
         blouseIncluded ? 1 : 0, safeSareeLength, safeBlouseLength, careInstructions ?? null, isFeatured ? 1 : 0, isActive !== false ? 1 : 0, categoryId]
     );
 
-    // Insert color variants if provided
+    // Insert color variants if provided with sequential numeric IDs
     const variants = Array.isArray(colorVariants) ? colorVariants : [];
+    let nextVarNum = 1;
+    if (variants.length > 0) {
+      const [maxVar] = await conn.query(
+        "SELECT MAX(CAST(id AS UNSIGNED)) as maxId FROM product_color_variants WHERE id REGEXP '^[0-9]+$'"
+      );
+      nextVarNum = (maxVar[0]?.maxId ? Number(maxVar[0].maxId) : 0) + 1;
+    }
     for (let i = 0; i < variants.length; i++) {
       const v = variants[i];
       if (!v.colorName) continue;
-      const vid = cuid('var_');
+      const vid = String(nextVarNum++);
       await conn.query(
         `INSERT INTO product_color_variants (id, productId, colorName, colorHex, images, stock, sortOrder)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -334,7 +338,7 @@ const updateProduct = async (req, res) => {
           );
         } else {
           // Insert new
-          const vid = cuid('var_');
+          const vid = await getNextNumericId('product_color_variants', conn);
           await conn.query(
             `INSERT INTO product_color_variants (id, productId, colorName, colorHex, images, stock, sortOrder)
              VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -453,7 +457,7 @@ const addVariant = async (req, res) => {
     const [prod] = await pool.query('SELECT id FROM products WHERE id = ?', [req.params.id]);
     if (!prod.length) return res.status(404).json({ success: false, message: 'Product not found' });
 
-    const id = cuid('var_');
+    const id = await getNextNumericId('product_color_variants');
     await pool.query(
       `INSERT INTO product_color_variants (id, productId, colorName, colorHex, images, stock, sortOrder)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,

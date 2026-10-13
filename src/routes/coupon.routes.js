@@ -1,19 +1,23 @@
 const { Router } = require('express');
 const { serializeError } = require('../lib/errorHandler');
 const pool = require('../lib/db');
-const { authenticate, authorizeAdmin } = require('../middleware/auth.middleware');
+const { authenticate, optionalAuthenticate, authorizeAdmin } = require('../middleware/auth.middleware');
 const { cuid } = require('../lib/cuid');
 
 const router = Router();
 
-router.post('/smart', authenticate, async (req, res) => {
+router.post('/smart', optionalAuthenticate, async (req, res) => {
   try {
     const { orderTotal } = req.body;
-    const userId = req.user.id;
-    const [userRows] = await pool.query('SELECT orderCount FROM users WHERE id = ?', [userId]);
-    const orderCount = userRows[0]?.orderCount || 0;
-    const [usedRows] = await pool.query('SELECT couponId FROM coupon_usage WHERE userId = ?', [userId]);
-    const usedCouponIds = usedRows.map(r => r.couponId);
+    const userId = req.user?.id || null;
+    let orderCount = 0;
+    let usedCouponIds = [];
+    if (userId) {
+      const [userRows] = await pool.query('SELECT orderCount FROM users WHERE id = ?', [userId]);
+      orderCount = userRows[0]?.orderCount || 0;
+      const [usedRows] = await pool.query('SELECT couponId FROM coupon_usage WHERE userId = ?', [userId]);
+      usedCouponIds = usedRows.map(r => r.couponId);
+    }
     const [couponRows] = await pool.query('SELECT * FROM coupons WHERE isActive = 1 ORDER BY priority DESC');
     const eligible = [];
     const almostThere = [];

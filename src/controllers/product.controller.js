@@ -28,7 +28,9 @@ function parseProduct(row, variants = []) {
   return {
     id: row.id, name: row.name, slug: row.slug,
     description: row.description || row.cat_description || '',
-    price: row.price, comparePrice: row.comparePrice, sku: row.sku, stock: row.stock,
+    price: row.price, comparePrice: row.comparePrice,
+    sku: row.sku || row.cat_sku || '',
+    stock: row.stock,
     images: safeParseJSON(row.images),
     fabric: row.fabric, occasion: row.occasion, color: row.color,
     blouseIncluded: Boolean(row.blouseIncluded),
@@ -115,7 +117,7 @@ const getProducts = async (req, res) => {
     const whereClause = conditions.length > 0 ? conditions.join(' AND ') : '1=1';
 
     const [rows] = await pool.query(
-      `SELECT p.*, c.id as cat_id, c.name as cat_name, c.slug as cat_slug, c.type as cat_type, c.description as cat_description, c.careInstructions as cat_careInstructions
+      `SELECT p.*, c.id as cat_id, c.name as cat_name, c.slug as cat_slug, c.type as cat_type, c.sku as cat_sku, c.description as cat_description, c.careInstructions as cat_careInstructions
        FROM products p LEFT JOIN categories c ON p.categoryId = c.id
        WHERE ${whereClause} ORDER BY ${sortCol} ${sortDir} LIMIT ? OFFSET ?`,
       [...params, Number(limit), offset]
@@ -143,7 +145,7 @@ const getProducts = async (req, res) => {
 const getProductBySlug = async (req, res) => {
   try {
     const [rows] = await pool.query(
-      `SELECT p.*, c.id as cat_id, c.name as cat_name, c.slug as cat_slug, c.type as cat_type, c.description as cat_description, c.careInstructions as cat_careInstructions
+      `SELECT p.*, c.id as cat_id, c.name as cat_name, c.slug as cat_slug, c.type as cat_type, c.sku as cat_sku, c.description as cat_description, c.careInstructions as cat_careInstructions
        FROM products p LEFT JOIN categories c ON p.categoryId = c.id
        WHERE p.slug = ? AND p.isActive = 1`, [req.params.slug]
     );
@@ -172,7 +174,7 @@ const getProductBySlug = async (req, res) => {
 const getFeaturedProducts = async (_req, res) => {
   try {
     const [rows] = await pool.query(
-      `SELECT p.*, c.id as cat_id, c.name as cat_name, c.slug as cat_slug, c.type as cat_type, c.description as cat_description, c.careInstructions as cat_careInstructions
+      `SELECT p.*, c.id as cat_id, c.name as cat_name, c.slug as cat_slug, c.type as cat_type, c.sku as cat_sku, c.description as cat_description, c.careInstructions as cat_careInstructions
        FROM products p LEFT JOIN categories c ON p.categoryId = c.id
        WHERE p.isFeatured = 1 AND p.isActive = 1 ORDER BY p.createdAt DESC LIMIT 8`
     );
@@ -209,20 +211,24 @@ const createProduct = async (req, res) => {
       fabric, occasion, color, blouseIncluded, sareeLength, blouseLength, careInstructions, isFeatured, isActive,
       categoryId, colorVariants } = req.body;
 
-    // description is now optional from client, will inherit from category
-    if (!name || !price || !sku || !categoryId) {
+    if (!name || !price || !categoryId) {
       await conn.rollback();
       conn.release();
       return res.status(400).json({ success: false, message: 'Missing required fields' });
     }
 
-    // Auto-inherit description & careInstructions from category if not provided
-    if (!description || !careInstructions) {
-      const [catRows] = await conn.query('SELECT description, careInstructions FROM categories WHERE id = ?', [categoryId]);
+    // Auto-inherit sku, description & careInstructions from category if not provided
+    if (!sku || !description || !careInstructions) {
+      const [catRows] = await conn.query('SELECT sku, description, careInstructions FROM categories WHERE id = ?', [categoryId]);
       if (catRows.length > 0) {
+        if (!sku) sku = catRows[0].sku || null;
         if (!description) description = catRows[0].description || '';
         if (!careInstructions) careInstructions = catRows[0].careInstructions || null;
       }
+    }
+
+    if (!sku) {
+      sku = `NS-${Date.now().toString().slice(-6)}`;
     }
 
     // Auto-generate slug
@@ -362,7 +368,7 @@ const updateProduct = async (req, res) => {
     conn.release();
 
     const [rows] = await pool.query(
-      `SELECT p.*, c.id as cat_id, c.name as cat_name, c.slug as cat_slug, c.type as cat_type, c.description as cat_description, c.careInstructions as cat_careInstructions
+      `SELECT p.*, c.id as cat_id, c.name as cat_name, c.slug as cat_slug, c.type as cat_type, c.sku as cat_sku, c.description as cat_description, c.careInstructions as cat_careInstructions
        FROM products p LEFT JOIN categories c ON p.categoryId = c.id WHERE p.id = ?`, [req.params.id]
     );
     const variantsMap = await fetchVariantsForProducts([req.params.id]);

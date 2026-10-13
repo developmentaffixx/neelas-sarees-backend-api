@@ -11,10 +11,14 @@ const router = Router();
 pool.query(`ALTER TABLE categories ADD COLUMN parentId VARCHAR(36) NULL DEFAULT NULL AFTER id`)
   .catch(() => {});
 
+// Make type column nullable and optional
+pool.query(`ALTER TABLE categories MODIFY COLUMN type VARCHAR(50) NULL DEFAULT NULL`)
+  .catch(() => {});
+
 // Get all distinct category types (for dynamic dropdown)
 router.get('/types', authenticate, authorizeAdmin, async (_req, res) => {
   try {
-    const [rows] = await pool.query('SELECT DISTINCT type FROM categories ORDER BY type ASC');
+    const [rows] = await pool.query('SELECT DISTINCT type FROM categories WHERE type IS NOT NULL AND type != "" ORDER BY type ASC');
     const types = rows.map(r => r.type);
     res.json({ success: true, data: types });
   } catch (error) { res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) }); }
@@ -60,6 +64,7 @@ router.post('/', authenticate, authorizeAdmin, async (req, res) => {
   try {
     const id = await getNextNumericId('categories');
     const { name, type, image, description, isActive = true, parentId = null } = req.body;
+    const cleanType = type && String(type).trim() !== '' ? String(type).trim() : null;
 
     // Auto-generate slug, append suffix on conflict
     const baseSlug = name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -74,13 +79,13 @@ router.post('/', authenticate, authorizeAdmin, async (req, res) => {
     try {
       await pool.query(
         'INSERT INTO categories (id, parentId, name, slug, type, image, description, isActive, sortOrder) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [id, parentId || null, name, slug, type, image || null, description || null, isActive ? 1 : 0, 0]
+        [id, parentId || null, name, slug, cleanType, image || null, description || null, isActive ? 1 : 0, 0]
       );
     } catch (err) {
       // Fallback in case parentId column doesn't exist yet
       await pool.query(
         'INSERT INTO categories (id, name, slug, type, image, description, isActive, sortOrder) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [id, name, slug, type, image || null, description || null, isActive ? 1 : 0, 0]
+        [id, name, slug, cleanType, image || null, description || null, isActive ? 1 : 0, 0]
       );
     }
 
@@ -95,7 +100,11 @@ router.put('/:id', authenticate, authorizeAdmin, async (req, res) => {
     const updateObj = {};
     for (const key of allowed) {
       if (req.body[key] !== undefined) {
-        updateObj[key] = req.body[key] === '' && key === 'parentId' ? null : req.body[key];
+        if ((key === 'parentId' || key === 'type') && (req.body[key] === '' || req.body[key] === null)) {
+          updateObj[key] = null;
+        } else {
+          updateObj[key] = req.body[key];
+        }
       }
     }
     const keys = Object.keys(updateObj);

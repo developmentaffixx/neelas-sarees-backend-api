@@ -72,8 +72,19 @@ const getProducts = async (req, res) => {
 
     if (includeInactive !== 'true') conditions.push('p.isActive = 1');
     if (category) {
-      conditions.push('(c.slug = ? OR c.parentId = (SELECT id FROM categories WHERE slug = ? LIMIT 1))');
-      params.push(category, category);
+      const catSlugs = String(category).split(',').map(s => s.trim()).filter(Boolean);
+      if (catSlugs.length === 1) {
+        conditions.push('(c.slug = ? OR c.id = ? OR c.parentId IN (SELECT id FROM categories WHERE slug = ? OR id = ?))');
+        params.push(catSlugs[0], catSlugs[0], catSlugs[0], catSlugs[0]);
+      } else if (catSlugs.length > 1) {
+        const ph = catSlugs.map(() => '?').join(',');
+        conditions.push(`(
+          c.slug IN (${ph}) 
+          OR c.id IN (${ph}) 
+          OR c.parentId IN (SELECT id FROM categories WHERE slug IN (${ph}) OR id IN (${ph}))
+        )`);
+        params.push(...catSlugs, ...catSlugs, ...catSlugs, ...catSlugs);
+      }
     }
     if (fabric) {
       const fabrics = fabric.split(',').map(s => s.trim()).filter(Boolean);

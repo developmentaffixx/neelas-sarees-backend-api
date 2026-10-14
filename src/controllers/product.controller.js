@@ -71,7 +71,10 @@ const getProducts = async (req, res) => {
     const params = [];
 
     if (includeInactive !== 'true') conditions.push('p.isActive = 1');
-    if (category) { conditions.push('c.slug = ?'); params.push(category); }
+    if (category) {
+      conditions.push('(c.slug = ? OR c.parentId = (SELECT id FROM categories WHERE slug = ? LIMIT 1))');
+      params.push(category, category);
+    }
     if (fabric) {
       const fabrics = fabric.split(',').map(s => s.trim()).filter(Boolean);
       if (fabrics.length > 0) {

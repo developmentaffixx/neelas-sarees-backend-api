@@ -124,6 +124,26 @@ router.put('/:id', authenticate, authorizeAdmin, async (req, res) => {
       const setClause = keys.map(k => `${k} = ?`).join(', ');
       await pool.query(`UPDATE categories SET ${setClause} WHERE id = ?`, [...Object.values(updateObj), req.params.id]);
     }
+
+    // Cascade isActive changes to child sub-categories and all related products
+    if (updateObj.isActive !== undefined) {
+      const activeVal = updateObj.isActive ? 1 : 0;
+      // Find all child sub-categories if this is a parent category
+      const [childRows] = await pool.query('SELECT id FROM categories WHERE parentId = ?', [req.params.id]);
+      const childIds = childRows.map(r => r.id);
+
+      // If parent category status changed, cascade status to all its sub-categories
+      if (childIds.length > 0) {
+        await pool.query('UPDATE categories SET isActive = ? WHERE parentId = ?', [activeVal, req.params.id]);
+      }
+
+      // Cascade to all products in this category or any of its child sub-categories
+      const allTargetCatIds = [req.params.id, ...childIds];
+      if (allTargetCatIds.length > 0) {
+        await pool.query('UPDATE products SET isActive = ? WHERE categoryId IN (?)', [activeVal, allTargetCatIds]);
+      }
+    }
+
     const [rows] = await pool.query('SELECT * FROM categories WHERE id = ?', [req.params.id]);
     res.json({ success: true, data: rows[0] });
   } catch (error) { res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) }); }
@@ -141,15 +161,39 @@ router.patch('/reorder', authenticate, authorizeAdmin, async (req, res) => {
 router.patch('/bulk-status', authenticate, authorizeAdmin, async (req, res) => {
   try {
     const { ids, isActive } = req.body;
-    await pool.query(`UPDATE categories SET isActive = ? WHERE id IN (?)`, [isActive ? 1 : 0, ids]);
-    res.json({ success: true, message: `${ids.length} categories updated` });
+    if (!ids || !ids.length) return res.status(400).json({ success: false, message: 'No category IDs provided' });
+    const activeVal = isActive ? 1 : 0;
+
+    // Find any child sub-categories of these selected IDs
+    const [childRows] = await pool.query('SELECT id FROM categories WHERE parentId IN (?)', [ids]);
+    const childIds = childRows.map(r => r.id);
+    const allCatIds = Array.from(new Set([...ids, ...childIds]));
+
+    // Update categories (parents + any child sub-categories)
+    await pool.query('UPDATE categories SET isActive = ? WHERE id IN (?)', [activeVal, allCatIds]);
+
+    // Update all products under these categories/sub-categories
+    await pool.query('UPDATE products SET isActive = ? WHERE categoryId IN (?)', [activeVal, allCatIds]);
+
+    res.json({ success: true, message: `${allCatIds.length} categories/sub-categories and their products updated` });
   } catch (error) { res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) }); }
 });
 
 router.delete('/:id', authenticate, authorizeAdmin, async (req, res) => {
   try {
-    await pool.query('UPDATE categories SET isActive = 0 WHERE id = ?', [req.params.id]);
-    res.json({ success: true, message: 'Category deleted' });
+    const id = req.params.id;
+    // Find all child subcategories
+    const [childRows] = await pool.query('SELECT id FROM categories WHERE parentId = ?', [id]);
+    const childIds = childRows.map(r => r.id);
+    const allCatIds = [id, ...childIds];
+
+    // Deactivate parent & all child subcategories
+    await pool.query('UPDATE categories SET isActive = 0 WHERE id IN (?)', [allCatIds]);
+
+    // Deactivate all products under them
+    await pool.query('UPDATE products SET isActive = 0 WHERE categoryId IN (?)', [allCatIds]);
+
+    res.json({ success: true, message: 'Category, sub-categories, and related products deactivated' });
   } catch (error) { res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) }); }
 });
 

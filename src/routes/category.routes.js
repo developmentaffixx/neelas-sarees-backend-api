@@ -60,7 +60,10 @@ router.get('/admin/all', authenticate, authorizeAdmin, async (_req, res) => {
       LEFT JOIN categories p_cat ON c.parentId = p_cat.id
       LEFT JOIN products p ON p.categoryId = c.id AND p.isActive = 1 
       GROUP BY c.id 
-      ORDER BY c.type ASC, c.sortOrder ASC
+      ORDER BY 
+        COALESCE(CAST(c.parentId AS UNSIGNED), CAST(c.id AS UNSIGNED)) ASC,
+        CASE WHEN c.parentId IS NULL THEN 0 ELSE 1 END ASC,
+        CAST(c.id AS UNSIGNED) ASC
     `);
     res.json({ success: true, data: rows });
   } catch (error) { res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) }); }

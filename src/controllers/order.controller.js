@@ -251,11 +251,18 @@ const getAllOrders = async (req, res) => {
     const conditions = [];
     const params = [];
     if (status) { conditions.push('o.status = ?'); params.push(status); }
-    if (search) { conditions.push('(u.name LIKE ? OR u.email LIKE ?)'); params.push(`%${search}%`, `%${search}%`); }
+    if (search) { conditions.push('(u.name LIKE ? OR u.email LIKE ? OR o.id LIKE ?)'); params.push(`%${search}%`, `%${search}%`, `%${search}%`); }
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
     const [orders] = await pool.query(
-      `SELECT o.*, u.name as user_name, u.email as user_email FROM orders o JOIN users u ON o.userId = u.id ${where} ORDER BY o.createdAt DESC LIMIT ? OFFSET ?`,
+      `SELECT o.*, u.name as user_name, u.email as user_email,
+              a.name as addr_name, a.phone as addr_phone, a.line1, a.line2, a.city, a.state, a.pincode
+       FROM orders o
+       JOIN users u ON o.userId = u.id
+       LEFT JOIN addresses a ON o.addressId = a.id
+       ${where}
+       ORDER BY o.createdAt DESC
+       LIMIT ? OFFSET ?`,
       [...params, Number(limit), offset]
     );
     const [countRows] = await pool.query(`SELECT COUNT(*) as total FROM orders o JOIN users u ON o.userId = u.id ${where}`, params);
@@ -267,6 +274,25 @@ const getAllOrders = async (req, res) => {
     }
     const result = orders.map(o => ({ ...o, items: items.filter(i => i.orderId === o.id) }));
     res.json({ success: true, data: result, pagination: { total: countRows[0].total, page: Number(page), limit: Number(limit), pages: Math.ceil(countRows[0].total / Number(limit)) } });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) });
+  }
+};
+
+const getAdminOrderById = async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT o.*, u.name as user_name, u.email as user_email,
+              a.name as addr_name, a.phone as addr_phone, a.line1, a.line2, a.city, a.state, a.pincode
+       FROM orders o
+       JOIN users u ON o.userId = u.id
+       LEFT JOIN addresses a ON o.addressId = a.id
+       WHERE o.id = ?`,
+      [req.params.id]
+    );
+    if (rows.length === 0) return res.status(404).json({ success: false, message: 'Order not found' });
+    const [itemRows] = await pool.query('SELECT * FROM order_items WHERE orderId = ?', [rows[0].id]);
+    res.json({ success: true, data: { ...rows[0], items: itemRows } });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) });
   }
@@ -300,4 +326,4 @@ const updateOrderStatus = async (req, res) => {
   }
 };
 
-module.exports = { createOrder, getUserOrders, getOrderById, cancelOrder, getAllOrders, updateOrderStatus };
+module.exports = { createOrder, getUserOrders, getOrderById, cancelOrder, getAllOrders, getAdminOrderById, updateOrderStatus };

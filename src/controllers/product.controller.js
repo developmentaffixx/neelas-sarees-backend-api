@@ -24,7 +24,49 @@ function parseVariant(row) {
   };
 }
 
+function inferFabricAndOccasion(categoryName = '', productName = '') {
+  const text = `${categoryName || ''} ${productName || ''}`.toLowerCase();
+
+  let fabric = '';
+  if (text.includes('chettinad')) fabric = 'Chettinad Cotton';
+  else if (text.includes('mul mul') || text.includes('mulmul')) fabric = 'Mul Mul Cotton';
+  else if (text.includes('narayanpet') || text.includes('narayapet')) fabric = 'Narayanpet Cotton';
+  else if (text.includes('mysore silk') || text.includes('semi mysore')) fabric = 'Semi Mysore Silk';
+  else if (text.includes('chiffon')) fabric = 'Chiffon';
+  else if (text.includes('maheswari') || text.includes('maheshwari')) fabric = 'Maheswari Cotton Silk';
+  else if (text.includes('tussar')) fabric = 'Semi Tussar Silk';
+  else if (text.includes('chanderi')) fabric = 'Chanderi Cotton';
+  else if (text.includes('kota doria') || text.includes('kota')) fabric = 'Kota Doria Cotton';
+  else if (text.includes('pochampally') || text.includes('ikkat')) fabric = 'Pochampally Cotton Ikkat';
+  else if (text.includes('kanjivaram')) fabric = 'Kanjivaram Silk';
+  else if (text.includes('banarasi')) fabric = 'Banarasi Silk';
+  else if (text.includes('organza')) fabric = 'Organza';
+  else if (text.includes('georgette')) fabric = 'Georgette';
+  else if (text.includes('linen')) fabric = 'Pure Linen';
+  else if (text.includes('silk')) fabric = 'Pure Silk';
+  else if (text.includes('cotton')) fabric = 'Pure Cotton';
+  else if (categoryName) fabric = categoryName.replace(/sarees?/gi, '').trim();
+  else fabric = 'Pure Handloom Cotton';
+
+  let occasion = '';
+  if (fabric.includes('Silk') || text.includes('silk') || text.includes('chiffon')) {
+    occasion = 'Festive, Party Wear, Wedding';
+  } else if (fabric.includes('Chettinad') || fabric.includes('Narayanpet') || fabric.includes('Pochampally')) {
+    occasion = 'Traditional, Daily Wear, Festive / Puja';
+  } else {
+    occasion = 'Daily Wear, Casual, Festive';
+  }
+
+  return { fabric, occasion };
+}
+
 function parseProduct(row, variants = []) {
+  const inferred = inferFabricAndOccasion(row.cat_name, row.name);
+  const resolvedFabric = (row.fabric && String(row.fabric).trim()) || inferred.fabric;
+  const resolvedOccasion = (row.occasion && String(row.occasion).trim()) || inferred.occasion;
+  const resolvedSareeLength = (row.sareeLength && String(row.sareeLength).trim()) || '5.5 Meters';
+  const resolvedBlouseLength = (row.blouseLength && String(row.blouseLength).trim()) || (row.blouseIncluded ? '0.8 Meters' : 'Included (0.8 Meters)');
+
   return {
     id: row.id, name: row.name, slug: row.slug,
     description: row.description || row.cat_description || '',
@@ -32,10 +74,12 @@ function parseProduct(row, variants = []) {
     sku: row.sku || row.cat_sku || '',
     stock: row.stock,
     images: safeParseJSON(row.images),
-    fabric: row.fabric, occasion: row.occasion, color: row.color,
+    fabric: resolvedFabric,
+    occasion: resolvedOccasion,
+    color: row.color,
     blouseIncluded: Boolean(row.blouseIncluded),
-    sareeLength: row.sareeLength || '',
-    blouseLength: row.blouseLength || '',
+    sareeLength: resolvedSareeLength,
+    blouseLength: resolvedBlouseLength,
     careInstructions: row.careInstructions || row.cat_careInstructions || '',
     isFeatured: Boolean(row.isFeatured), isActive: Boolean(row.isActive),
     categoryId: row.categoryId, createdAt: row.createdAt, updatedAt: row.updatedAt,
@@ -264,8 +308,20 @@ const createProduct = async (req, res) => {
     }
 
     const id = await getNextNumericId('products', conn);
-    const safeSareeLength = (sareeLength && String(sareeLength).trim()) ? String(sareeLength).trim() : null;
-    const safeBlouseLength = blouseIncluded && (blouseLength && String(blouseLength).trim()) ? String(blouseLength).trim() : null;
+    let safeFabric = (fabric && String(fabric).trim()) || '';
+    let safeOccasion = (occasion && String(occasion).trim()) || '';
+    if (!safeFabric || !safeOccasion) {
+      let catName = '';
+      if (categoryId) {
+        const [cats] = await conn.query('SELECT name FROM categories WHERE id = ?', [categoryId]);
+        if (cats.length) catName = cats[0].name;
+      }
+      const inferred = inferFabricAndOccasion(catName, name);
+      if (!safeFabric) safeFabric = inferred.fabric;
+      if (!safeOccasion) safeOccasion = inferred.occasion;
+    }
+    const safeSareeLength = (sareeLength && String(sareeLength).trim()) ? String(sareeLength).trim() : '5.5 Meters';
+    const safeBlouseLength = blouseIncluded ? ((blouseLength && String(blouseLength).trim()) ? String(blouseLength).trim() : '0.8 Meters') : null;
     const safeComparePrice = (comparePrice !== undefined && comparePrice !== null && comparePrice !== '' && Number(comparePrice) > 0)
       ? Number(comparePrice)
       : null;
@@ -275,7 +331,7 @@ const createProduct = async (req, res) => {
         fabric, occasion, color, blouseIncluded, sareeLength, blouseLength, careInstructions, isFeatured, isActive, categoryId)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [id, name, slug, description, price, safeComparePrice, sku, stock ?? 0,
-        JSON.stringify(images ?? []), fabric ?? '', occasion ?? '', color ?? '',
+        JSON.stringify(images ?? []), safeFabric, safeOccasion, color ?? '',
         blouseIncluded ? 1 : 0, safeSareeLength, safeBlouseLength, careInstructions ?? null, isFeatured ? 1 : 0, isActive !== false ? 1 : 0, categoryId]
     );
 
@@ -302,7 +358,10 @@ const createProduct = async (req, res) => {
     await conn.commit();
     conn.release();
 
-    const [rows] = await pool.query('SELECT * FROM products WHERE id = ?', [id]);
+    const [rows] = await pool.query(
+      `SELECT p.*, c.id as cat_id, c.name as cat_name, c.slug as cat_slug, c.type as cat_type, c.sku as cat_sku, c.description as cat_description, c.careInstructions as cat_careInstructions
+       FROM products p LEFT JOIN categories c ON p.categoryId = c.id WHERE p.id = ?`, [id]
+    );
     const variantsMap = await fetchVariantsForProducts([id]);
     res.status(201).json({ success: true, data: parseProduct(rows[0], variantsMap[id] || []) });
   } catch (error) {
@@ -332,8 +391,28 @@ const updateProduct = async (req, res) => {
           ? Number(fields.comparePrice)
           : null;
       }
+      if ('fabric' in fields && (!fields.fabric || !String(fields.fabric).trim())) {
+        const [existing] = await conn.query(
+          `SELECT p.name, c.name as cat_name FROM products p LEFT JOIN categories c ON p.categoryId = c.id WHERE p.id = ?`,
+          [req.params.id]
+        );
+        if (existing.length) {
+          const auto = inferFabricAndOccasion(existing[0].cat_name, fields.name || existing[0].name);
+          fields.fabric = auto.fabric;
+        }
+      }
+      if ('occasion' in fields && (!fields.occasion || !String(fields.occasion).trim())) {
+        const [existing] = await conn.query(
+          `SELECT p.name, c.name as cat_name FROM products p LEFT JOIN categories c ON p.categoryId = c.id WHERE p.id = ?`,
+          [req.params.id]
+        );
+        if (existing.length) {
+          const auto = inferFabricAndOccasion(existing[0].cat_name, fields.name || existing[0].name);
+          fields.occasion = auto.occasion;
+        }
+      }
       if ('sareeLength' in fields) {
-        fields.sareeLength = (fields.sareeLength && String(fields.sareeLength).trim()) ? String(fields.sareeLength).trim() : null;
+        fields.sareeLength = (fields.sareeLength && String(fields.sareeLength).trim()) ? String(fields.sareeLength).trim() : '5.5 Meters';
       }
       if ('blouseLength' in fields) {
         fields.blouseLength = (fields.blouseLength && String(fields.blouseLength).trim()) ? String(fields.blouseLength).trim() : null;

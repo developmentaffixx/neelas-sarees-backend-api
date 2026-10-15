@@ -231,11 +231,19 @@ const createProduct = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Missing required fields' });
     }
 
-    // Auto-inherit sku, description & careInstructions from category if not provided
+    // Auto-inherit sku, description & careInstructions from category or sub-category if not provided
     if (!sku || !description || !careInstructions) {
-      const [catRows] = await conn.query('SELECT sku, description, careInstructions FROM categories WHERE id = ?', [categoryId]);
+      const [catRows] = await conn.query('SELECT sku, parentId, description, careInstructions FROM categories WHERE id = ?', [categoryId]);
       if (catRows.length > 0) {
         if (!sku) sku = catRows[0].sku || null;
+        if (!sku && catRows[0].parentId) {
+          const [parentRows] = await conn.query('SELECT sku, description, careInstructions FROM categories WHERE id = ?', [catRows[0].parentId]);
+          if (parentRows.length > 0) {
+            if (!sku) sku = parentRows[0].sku || null;
+            if (!description) description = parentRows[0].description || '';
+            if (!careInstructions) careInstructions = parentRows[0].careInstructions || null;
+          }
+        }
         if (!description) description = catRows[0].description || '';
         if (!careInstructions) careInstructions = catRows[0].careInstructions || null;
       }

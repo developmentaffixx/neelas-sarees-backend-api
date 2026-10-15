@@ -22,6 +22,23 @@ function parseImages(val) {
   return [];
 }
 
+// Ensure sku column exists in order_items
+pool.query("ALTER TABLE `order_items` ADD COLUMN `sku` VARCHAR(100) NULL DEFAULT NULL").catch(() => {});
+
+const orderItemsSelect = `
+  SELECT oi.*,
+         COALESCE(NULLIF(p.sku, ''), NULLIF(c.sku, ''), NULLIF(parent_c.sku, '')) AS sku,
+         COALESCE(NULLIF(p.sku, ''), NULLIF(c.sku, ''), NULLIF(parent_c.sku, '')) AS code,
+         p.sku AS product_sku,
+         c.sku AS category_sku,
+         parent_c.sku AS parent_category_sku,
+         c.name AS category_name
+  FROM order_items oi
+  LEFT JOIN products p ON oi.productId = p.id
+  LEFT JOIN categories c ON p.categoryId = c.id
+  LEFT JOIN categories parent_c ON c.parentId = parent_c.id
+`;
+
 const createOrder = async (req, res) => {
   const conn = await pool.getConnection();
   try {
@@ -62,19 +79,35 @@ const createOrder = async (req, res) => {
         );
       }
 
-      addressId = cuid('addr_');
-      await conn.query(
-        'INSERT INTO addresses (id, userId, name, phone, line1, line2, city, state, pincode, isDefault) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)',
-        [addressId, userId, guestName, guestPhone, shippingAddress.address, shippingAddress.apartment || null, shippingAddress.city, shippingAddress.state, shippingAddress.pincode]
+      const [existing] = await conn.query(
+        'SELECT id FROM addresses WHERE userId = ? AND LOWER(TRIM(line1)) = LOWER(TRIM(?)) AND LOWER(TRIM(city)) = LOWER(TRIM(?)) AND TRIM(pincode) = TRIM(?)',
+        [userId, shippingAddress.address, shippingAddress.city, shippingAddress.pincode]
       );
+      if (existing.length > 0) {
+        addressId = existing[0].id;
+      } else {
+        addressId = cuid('addr_');
+        await conn.query(
+          'INSERT INTO addresses (id, userId, name, phone, line1, line2, city, state, pincode, isDefault) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)',
+          [addressId, userId, guestName, guestPhone, shippingAddress.address, shippingAddress.apartment || null, shippingAddress.city, shippingAddress.state, shippingAddress.pincode]
+        );
+      }
     } else if (!addressId && shippingAddress) {
       // User is logged in but passed a new shipping address
       const guestName = `${shippingAddress.firstName} ${shippingAddress.lastName || ''}`.trim();
-      addressId = cuid('addr_');
-      await conn.query(
-        'INSERT INTO addresses (id, userId, name, phone, line1, line2, city, state, pincode, isDefault) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)',
-        [addressId, userId, guestName, shippingAddress.phone || '', shippingAddress.address, shippingAddress.apartment || null, shippingAddress.city, shippingAddress.state, shippingAddress.pincode]
+      const [existing] = await conn.query(
+        'SELECT id FROM addresses WHERE userId = ? AND LOWER(TRIM(line1)) = LOWER(TRIM(?)) AND LOWER(TRIM(city)) = LOWER(TRIM(?)) AND TRIM(pincode) = TRIM(?)',
+        [userId, shippingAddress.address, shippingAddress.city, shippingAddress.pincode]
       );
+      if (existing.length > 0) {
+        addressId = existing[0].id;
+      } else {
+        addressId = cuid('addr_');
+        await conn.query(
+          'INSERT INTO addresses (id, userId, name, phone, line1, line2, city, state, pincode, isDefault) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)',
+          [addressId, userId, guestName, shippingAddress.phone || '', shippingAddress.address, shippingAddress.apartment || null, shippingAddress.city, shippingAddress.state, shippingAddress.pincode]
+        );
+      }
     }
 
     if (!addressId) {
@@ -92,7 +125,14 @@ const createOrder = async (req, res) => {
     const orderItems = [];
 
     for (const item of items) {
-      const [rows] = await conn.query('SELECT * FROM products WHERE id = ?', [item.productId]);
+      const [rows] = await conn.query(
+        `SELECT p.*, c.sku as category_sku, parent_c.sku as parent_category_sku
+         FROM products p
+         LEFT JOIN categories c ON p.categoryId = c.id
+         LEFT JOIN categories parent_c ON c.parentId = parent_c.id
+         WHERE p.id = ?`,
+        [item.productId]
+      );
       if (rows.length === 0 || !rows[0].isActive) {
         await conn.rollback();
         return res.status(400).json({ success: false, message: `Product not available: ${item.productId}` });
@@ -105,7 +145,8 @@ const createOrder = async (req, res) => {
       subtotal += product.price * item.quantity;
       const images = parseImages(product.images);
       const itemImage = (images[0] || '').slice(0, 191);
-      orderItems.push({ id: cuid('oi_'), productId: product.id, quantity: item.quantity, price: product.price, name: product.name, image: itemImage });
+      const itemSku = product.sku || product.category_sku || product.parent_category_sku || null;
+      orderItems.push({ id: cuid('oi_'), productId: product.id, quantity: item.quantity, price: product.price, name: product.name, image: itemImage, sku: itemSku });
     }
 
     let discount = 0;
@@ -125,8 +166,16 @@ const createOrder = async (req, res) => {
     }
 
     const shippingCharge = subtotal - discount >= 999 ? 0 : 99;
-    const total = subtotal - discount + shippingCharge;
-    const orderId = cuid('ord_');
+    // Generate sequential numeric Database Order ID (1, 2, 3...)
+    const [maxRow] = await conn.query('SELECT MAX(CAST(id AS UNSIGNED)) as maxId FROM orders WHERE id REGEXP "^[0-9]+$"');
+    let nextNum = 1;
+    if (maxRow && maxRow[0] && maxRow[0].maxId) {
+      nextNum = Number(maxRow[0].maxId) + 1;
+    } else {
+      const [countRow] = await conn.query('SELECT COUNT(*) as total FROM orders');
+      nextNum = (countRow[0]?.total || 0) + 1;
+    }
+    const orderId = String(nextNum);
 
     let isPaidOnline = false;
     if (paymentMethod === 'ONLINE' || paymentMethod === 'RAZORPAY') {
@@ -156,10 +205,17 @@ const createOrder = async (req, res) => {
     );
 
     for (const oi of orderItems) {
-      await conn.query(
-        'INSERT INTO order_items (id, orderId, productId, quantity, price, name, image) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [oi.id, orderId, oi.productId, oi.quantity, oi.price, oi.name, oi.image]
-      );
+      try {
+        await conn.query(
+          'INSERT INTO order_items (id, orderId, productId, quantity, price, name, image, sku) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+          [oi.id, orderId, oi.productId, oi.quantity, oi.price, oi.name, oi.image, oi.sku || null]
+        );
+      } catch {
+        await conn.query(
+          'INSERT INTO order_items (id, orderId, productId, quantity, price, name, image) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          [oi.id, orderId, oi.productId, oi.quantity, oi.price, oi.name, oi.image]
+        );
+      }
     }
 
     for (const item of items) {
@@ -179,7 +235,7 @@ const createOrder = async (req, res) => {
       `SELECT o.*, a.name as addr_name, a.phone as addr_phone, a.line1, a.line2, a.city, a.state, a.pincode
        FROM orders o JOIN addresses a ON o.addressId = a.id WHERE o.id = ?`, [orderId]
     );
-    const [itemRows] = await pool.query('SELECT * FROM order_items WHERE orderId = ?', [orderId]);
+    const [itemRows] = await pool.query(`${orderItemsSelect} WHERE oi.orderId = ?`, [orderId]);
     const order = orderRows[0];
     res.status(201).json({ success: true, data: { ...order, items: itemRows, address: { name: order.addr_name, phone: order.addr_phone, line1: order.line1, line2: order.line2, city: order.city, state: order.state, pincode: order.pincode } } });
   } catch (error) {
@@ -197,7 +253,7 @@ const getUserOrders = async (req, res) => {
        FROM orders o JOIN addresses a ON o.addressId = a.id WHERE o.userId = ? ORDER BY o.createdAt DESC`, [req.user.id]
     );
     const [allItems] = await pool.query(
-      'SELECT * FROM order_items WHERE orderId IN (SELECT id FROM orders WHERE userId = ?)', [req.user.id]
+      `${orderItemsSelect} WHERE oi.orderId IN (SELECT id FROM orders WHERE userId = ?)`, [req.user.id]
     );
     const result = orders.map(o => ({ ...o, items: allItems.filter(i => i.orderId === o.id) }));
     res.json({ success: true, data: result });
@@ -214,7 +270,7 @@ const getOrderById = async (req, res) => {
       [req.params.id, req.user.id]
     );
     if (rows.length === 0) return res.status(404).json({ success: false, message: 'Order not found' });
-    const [itemRows] = await pool.query('SELECT * FROM order_items WHERE orderId = ?', [rows[0].id]);
+    const [itemRows] = await pool.query(`${orderItemsSelect} WHERE oi.orderId = ?`, [rows[0].id]);
     res.json({ success: true, data: { ...rows[0], items: itemRows } });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) });
@@ -269,7 +325,7 @@ const getAllOrders = async (req, res) => {
     const orderIds = orders.map(o => o.id);
     let items = [];
     if (orderIds.length > 0) {
-      const [itemRows] = await pool.query(`SELECT * FROM order_items WHERE orderId IN (${orderIds.map(() => '?').join(',')})`, orderIds);
+      const [itemRows] = await pool.query(`${orderItemsSelect} WHERE oi.orderId IN (${orderIds.map(() => '?').join(',')})`, orderIds);
       items = itemRows;
     }
     const result = orders.map(o => ({ ...o, items: items.filter(i => i.orderId === o.id) }));
@@ -291,7 +347,7 @@ const getAdminOrderById = async (req, res) => {
       [req.params.id]
     );
     if (rows.length === 0) return res.status(404).json({ success: false, message: 'Order not found' });
-    const [itemRows] = await pool.query('SELECT * FROM order_items WHERE orderId = ?', [rows[0].id]);
+    const [itemRows] = await pool.query(`${orderItemsSelect} WHERE oi.orderId = ?`, [rows[0].id]);
     res.json({ success: true, data: { ...rows[0], items: itemRows } });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) });

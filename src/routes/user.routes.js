@@ -121,11 +121,36 @@ router.post('/me/addresses', authenticate, async (req, res) => {
     if (!name || !phone || !line1 || !city || !state || !pincode) {
       return res.status(400).json({ success: false, message: 'All required address fields must be provided' });
     }
-    if (isDefault) await pool.query('UPDATE addresses SET isDefault = 0 WHERE userId = ?', [req.user.id]);
+
+    // Check count of user addresses to auto-default if first address
+    const [countRows] = await pool.query('SELECT COUNT(*) as count FROM addresses WHERE userId = ?', [req.user.id]);
+    const shouldDefault = isDefault || (countRows[0]?.count || 0) === 0;
+
+    // Check if duplicate address already exists for user
+    const [existing] = await pool.query(
+      'SELECT id FROM addresses WHERE userId = ? AND LOWER(TRIM(line1)) = LOWER(TRIM(?)) AND LOWER(TRIM(city)) = LOWER(TRIM(?)) AND TRIM(pincode) = TRIM(?)',
+      [req.user.id, line1, city, pincode]
+    );
+
+    if (existing.length > 0) {
+      const existingId = existing[0].id;
+      if (shouldDefault) {
+        await pool.query('UPDATE addresses SET isDefault = 0 WHERE userId = ?', [req.user.id]);
+        await pool.query('UPDATE addresses SET name = ?, phone = ?, line2 = ?, state = ?, isDefault = 1 WHERE id = ?', [name, phone, line2 || null, state, existingId]);
+      } else {
+        await pool.query('UPDATE addresses SET name = ?, phone = ?, line2 = ?, state = ? WHERE id = ?', [name, phone, line2 || null, state, existingId]);
+      }
+      const [rows] = await pool.query('SELECT * FROM addresses WHERE id = ?', [existingId]);
+      return res.status(200).json({ success: true, data: rows[0] });
+    }
+
+    if (shouldDefault) {
+      await pool.query('UPDATE addresses SET isDefault = 0 WHERE userId = ?', [req.user.id]);
+    }
     const id = cuid('addr_');
     await pool.query(
       'INSERT INTO addresses (id, userId, name, phone, line1, line2, city, state, pincode, isDefault) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [id, req.user.id, name, phone, line1, line2 || null, city, state, pincode, isDefault ? 1 : 0]
+      [id, req.user.id, name, phone, line1, line2 || null, city, state, pincode, shouldDefault ? 1 : 0]
     );
     const [rows] = await pool.query('SELECT * FROM addresses WHERE id = ?', [id]);
     res.status(201).json({ success: true, data: rows[0] });

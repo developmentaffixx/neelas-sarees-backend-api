@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const pool = require('../lib/db');
 const { serializeError } = require('../lib/errorHandler');
 const { cuid } = require('../lib/cuid');
+const { autoRefundPayment } = require('../lib/razorpay');
 
 function parseImages(val) {
   if (!val) return [];
@@ -130,24 +131,39 @@ const createOrder = async (req, res) => {
          FROM products p
          LEFT JOIN categories c ON p.categoryId = c.id
          LEFT JOIN categories parent_c ON c.parentId = parent_c.id
-         WHERE p.id = ?`,
+         WHERE p.id = ? FOR UPDATE`,
         [item.productId]
       );
       if (rows.length === 0 || !rows[0].isActive) {
         await conn.rollback();
-        return res.status(400).json({ success: false, message: `Product not available: ${item.productId}` });
+        if (razorpayPaymentId) {
+          await autoRefundPayment(razorpayPaymentId, `Product not available: ${item.productId}`);
+        }
+        return res.status(400).json({
+          success: false,
+          refunded: Boolean(razorpayPaymentId),
+          message: `This saree is no longer available. ${razorpayPaymentId ? 'Your payment has been automatically refunded to your original payment method.' : ''}`,
+        });
       }
       const product = rows[0];
       let availableStock = product.stock;
       if (item.variantId) {
-        const [varRows] = await conn.query('SELECT stock FROM product_color_variants WHERE id = ?', [item.variantId]);
+        const [varRows] = await conn.query('SELECT stock FROM product_color_variants WHERE id = ? FOR UPDATE', [item.variantId]);
         if (varRows.length > 0 && varRows[0].stock !== null && varRows[0].stock !== undefined) {
           availableStock = varRows[0].stock;
         }
       }
       if (availableStock < item.quantity) {
         await conn.rollback();
-        return res.status(400).json({ success: false, message: `Insufficient stock for: ${product.name}` });
+        let refundInfo = null;
+        if (razorpayPaymentId) {
+          refundInfo = await autoRefundPayment(razorpayPaymentId, `Out of stock for ${product.name}`);
+        }
+        return res.status(400).json({
+          success: false,
+          refunded: Boolean(refundInfo?.success),
+          message: `Sorry, another customer just completed the purchase for "${product.name}". ${refundInfo?.success ? 'Your payment has been automatically refunded to your original payment method.' : (razorpayPaymentId ? 'Our team will process your refund shortly.' : '')}`,
+        });
       }
       subtotal += product.price * item.quantity;
       const images = parseImages(product.images);
@@ -252,7 +268,14 @@ const createOrder = async (req, res) => {
     res.status(201).json({ success: true, data: { ...order, items: itemRows, address: { name: order.addr_name, phone: order.addr_phone, line1: order.line1, line2: order.line2, city: order.city, state: order.state, pincode: order.pincode } } });
   } catch (error) {
     await conn.rollback();
-    res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) });
+    if (req.body?.razorpayPaymentId) {
+      await autoRefundPayment(req.body.razorpayPaymentId, 'System error during order creation');
+    }
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create order. If your payment was deducted, an automatic refund has been initiated.',
+      error: serializeError(error),
+    });
   } finally {
     conn.release();
   }

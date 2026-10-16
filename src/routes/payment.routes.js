@@ -1,20 +1,10 @@
 const { Router } = require('express');
-const Razorpay = require('razorpay');
 const crypto = require('crypto');
 const pool = require('../lib/db');
 const { authenticate, optionalAuthenticate } = require('../middleware/auth.middleware');
+const { getRazorpayInstance } = require('../lib/razorpay');
 
 const router = Router();
-
-const getRazorpayInstance = () => {
-  const key_id = (process.env.RAZORPAY_KEY_ID || '').trim();
-  const key_secret = (process.env.RAZORPAY_KEY_SECRET || '').trim();
-
-  if (!key_id || !key_secret || key_id.includes('your_razorpay') || key_secret.includes('your_razorpay')) {
-    return null;
-  }
-  return new Razorpay({ key_id, key_secret });
-};
 
 router.post('/create-order', optionalAuthenticate, async (req, res) => {
   try {

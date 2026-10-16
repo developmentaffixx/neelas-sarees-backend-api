@@ -15,28 +15,46 @@ const router = Router();
 router.get('/', authenticate, async (req, res) => {
   try {
     const [rows] = await pool.query(
-      `SELECT ci.*, p.id as prod_id, p.name as prod_name, p.slug as prod_slug, p.price, p.comparePrice, p.images, p.stock, p.isActive
-       FROM cart_items ci JOIN products p ON ci.productId = p.id WHERE ci.userId = ?`,
+      `SELECT ci.*, 
+              p.id as prod_id, p.name as prod_name, p.slug as prod_slug, p.price, p.comparePrice, p.images, p.stock as prod_stock, p.isActive,
+              pcv.colorName as variantColor, pcv.images as variantImages, pcv.stock as variantStock
+       FROM cart_items ci 
+       JOIN products p ON ci.productId = p.id 
+       LEFT JOIN product_color_variants pcv ON ci.variantId = pcv.id
+       WHERE ci.userId = ?`,
       [req.user.id]
     );
-    const items = rows.map((r) => ({
-      id: r.id,
-      userId: r.userId,
-      productId: r.productId,
-      variantId: r.variantId || null,
-      quantity: r.quantity,
-      createdAt: r.createdAt,
-      product: {
-        id: r.prod_id,
-        name: r.prod_name,
-        slug: r.prod_slug,
-        price: r.price,
-        comparePrice: r.comparePrice,
-        images: safeParseJSON(r.images),
-        stock: r.stock,
-        isActive: Boolean(r.isActive),
-      },
-    }));
+
+    const items = rows.map((r) => {
+      const prodImages = safeParseJSON(r.images);
+      const varImages = safeParseJSON(r.variantImages);
+      const displayImage = (Array.isArray(varImages) && varImages[0]) || (Array.isArray(prodImages) && prodImages[0]) || '';
+      const effectiveStock = r.variantId && r.variantStock !== null && r.variantStock !== undefined 
+        ? Number(r.variantStock) 
+        : Number(r.prod_stock);
+
+      return {
+        id: r.id,
+        userId: r.userId,
+        productId: r.productId,
+        variantId: r.variantId || null,
+        color: r.variantColor || null,
+        quantity: Number(r.quantity),
+        createdAt: r.createdAt,
+        product: {
+          id: r.prod_id,
+          name: r.prod_name,
+          slug: r.prod_slug,
+          price: Number(r.price),
+          comparePrice: r.comparePrice ? Number(r.comparePrice) : null,
+          images: prodImages,
+          image: displayImage,
+          stock: effectiveStock,
+          isActive: Boolean(r.isActive),
+        },
+      };
+    });
+
     res.json({ success: true, data: items });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) });
@@ -121,7 +139,7 @@ router.delete('/', authenticate, async (req, res) => {
   }
 });
 
-// ─── Bulk sync: replace entire server cart in one request (#2/#10) ────────────
+// ─── Bulk sync: replace entire server cart in one atomic transaction ──────────
 // Body: { items: [{ productId, variantId?, quantity }] }
 router.post('/sync', authenticate, async (req, res) => {
   const conn = await pool.getConnection();
@@ -135,29 +153,75 @@ router.post('/sync', authenticate, async (req, res) => {
     await conn.query('DELETE FROM cart_items WHERE userId = ?', [req.user.id]);
 
     if (items.length > 0) {
-      // Validate products exist and are active in one query
-      const productIds = [...new Set(items.map((i) => i.productId))];
-      const [products] = await conn.query(
-        `SELECT id, stock FROM products WHERE id IN (${productIds.map(() => '?').join(',')}) AND isActive = 1`,
-        productIds
-      );
-      const stockMap = Object.fromEntries(products.map((p) => [p.id, p.stock]));
+      // 1. Deduplicate items by (productId, variantId) to ensure no duplicate key errors
+      const dedupedMap = new Map();
+      for (const item of items) {
+        if (!item || !item.productId || !item.quantity || Number(item.quantity) <= 0) continue;
+        const vId = item.variantId ? String(item.variantId) : null;
+        const key = `${item.productId}:::${vId || ''}`;
+        if (dedupedMap.has(key)) {
+          dedupedMap.get(key).quantity += Number(item.quantity);
+        } else {
+          dedupedMap.set(key, {
+            productId: String(item.productId),
+            variantId: vId,
+            quantity: Number(item.quantity),
+          });
+        }
+      }
 
-      const rows = items
-        .filter((i) => stockMap[i.productId] !== undefined && i.quantity > 0)
-        .map((i) => [
-          cuid('cart_'),
-          req.user.id,
-          i.productId,
-          i.variantId || null,
-          Math.min(i.quantity, stockMap[i.productId]),
-        ]);
+      const cleanItems = Array.from(dedupedMap.values());
 
-      if (rows.length > 0) {
-        await conn.query(
-          'INSERT INTO cart_items (id, userId, productId, variantId, quantity) VALUES ?',
-          [rows]
+      if (cleanItems.length > 0) {
+        // 2. Fetch products in one batch
+        const productIds = [...new Set(cleanItems.map((i) => i.productId))];
+        const [products] = await conn.query(
+          `SELECT id, stock FROM products WHERE id IN (${productIds.map(() => '?').join(',')}) AND isActive = 1`,
+          productIds
         );
+        const productMap = Object.fromEntries(products.map((p) => [p.id, p]));
+
+        // 3. Fetch variants in one batch if needed
+        const variantIds = cleanItems.map((i) => i.variantId).filter(Boolean);
+        let variantMap = {};
+        if (variantIds.length > 0) {
+          const [variants] = await conn.query(
+            `SELECT id, productId, stock FROM product_color_variants WHERE id IN (${variantIds.map(() => '?').join(',')})`,
+            variantIds
+          );
+          variantMap = Object.fromEntries(variants.map((v) => [v.id, v.stock]));
+        }
+
+        // 4. Construct insert rows
+        const rows = [];
+        for (const item of cleanItems) {
+          const prod = productMap[item.productId];
+          if (!prod) continue; // Inactive or deleted product
+
+          let availableStock = prod.stock;
+          if (item.variantId && variantMap[item.variantId] !== undefined) {
+            availableStock = variantMap[item.variantId];
+          }
+
+          // Ensure positive quantity, capped if stock > 0
+          const safeQty = availableStock > 0 ? Math.min(item.quantity, availableStock) : item.quantity;
+          if (safeQty > 0) {
+            rows.push([
+              cuid('cart_'),
+              req.user.id,
+              item.productId,
+              item.variantId || null,
+              safeQty,
+            ]);
+          }
+        }
+
+        if (rows.length > 0) {
+          await conn.query(
+            'INSERT INTO cart_items (id, userId, productId, variantId, quantity) VALUES ?',
+            [rows]
+          );
+        }
       }
     }
 

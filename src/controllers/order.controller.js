@@ -138,7 +138,14 @@ const createOrder = async (req, res) => {
         return res.status(400).json({ success: false, message: `Product not available: ${item.productId}` });
       }
       const product = rows[0];
-      if (product.stock < item.quantity) {
+      let availableStock = product.stock;
+      if (item.variantId) {
+        const [varRows] = await conn.query('SELECT stock FROM product_color_variants WHERE id = ?', [item.variantId]);
+        if (varRows.length > 0 && varRows[0].stock !== null && varRows[0].stock !== undefined) {
+          availableStock = varRows[0].stock;
+        }
+      }
+      if (availableStock < item.quantity) {
         await conn.rollback();
         return res.status(400).json({ success: false, message: `Insufficient stock for: ${product.name}` });
       }
@@ -166,6 +173,8 @@ const createOrder = async (req, res) => {
     }
 
     const shippingCharge = subtotal - discount >= 999 ? 0 : 99;
+    const total = Math.max(0, subtotal - discount + shippingCharge);
+
     // Generate sequential numeric Database Order ID (1, 2, 3...)
     const [maxRow] = await conn.query('SELECT MAX(CAST(id AS UNSIGNED)) as maxId FROM orders WHERE id REGEXP "^[0-9]+$"');
     let nextNum = 1;
@@ -219,7 +228,10 @@ const createOrder = async (req, res) => {
     }
 
     for (const item of items) {
-      await conn.query('UPDATE products SET stock = stock - ? WHERE id = ?', [item.quantity, item.productId]);
+      if (item.variantId) {
+        await conn.query('UPDATE product_color_variants SET stock = GREATEST(0, stock - ?) WHERE id = ?', [item.quantity, item.variantId]);
+      }
+      await conn.query('UPDATE products SET stock = GREATEST(0, stock - ?) WHERE id = ?', [item.quantity, item.productId]);
     }
 
     if (couponId) {

@@ -75,10 +75,13 @@ router.get('/abandoned-carts', authenticate, authorizeAdmin, async (_req, res) =
         p.slug as product_slug,
         p.price as product_price,
         p.images as product_images,
-        p.stock as product_stock
+        p.stock as product_stock,
+        pcv.colorName as variantColor,
+        pcv.images as variantImages
       FROM cart_items ci
       JOIN users u ON ci.userId = u.id
       JOIN products p ON ci.productId = p.id
+      LEFT JOIN product_color_variants pcv ON ci.variantId = pcv.id
       ORDER BY ci.createdAt DESC
     `);
 
@@ -100,6 +103,8 @@ router.get('/abandoned-carts', authenticate, authorizeAdmin, async (_req, res) =
 
       const userCart = userCartsMap.get(row.user_id);
       const images = safeParseJSON(row.product_images);
+      const varImages = safeParseJSON(row.variantImages);
+      const displayImage = (Array.isArray(varImages) && varImages[0]) || (Array.isArray(images) && images[0]) || '';
       const itemTotal = Number(row.product_price) * Number(row.quantity);
 
       userCart.totalAmount += itemTotal;
@@ -116,9 +121,10 @@ router.get('/abandoned-carts', authenticate, authorizeAdmin, async (_req, res) =
         slug: row.product_slug,
         price: Number(row.product_price),
         quantity: Number(row.quantity),
-        image: Array.isArray(images) && images.length > 0 ? images[0] : '',
+        image: displayImage,
         stock: Number(row.product_stock),
         variantId: row.variantId,
+        color: row.variantColor || null,
       });
     }
 

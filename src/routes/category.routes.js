@@ -21,6 +21,10 @@ pool.query(`ALTER TABLE categories ADD COLUMN careInstructions TEXT NULL DEFAULT
 pool.query(`ALTER TABLE categories MODIFY COLUMN type VARCHAR(50) NULL DEFAULT NULL`)
   .catch(() => {});
 
+// Non-blocking drop of products sku unique indexes so sarees under same category can share common design SKU
+pool.query('ALTER TABLE products DROP INDEX products_sku_key').catch(() => {});
+pool.query('ALTER TABLE products DROP INDEX sku').catch(() => {});
+
 // Get all distinct category types (for dynamic dropdown)
 router.get('/types', authenticate, authorizeAdmin, async (_req, res) => {
   try {
@@ -106,6 +110,102 @@ router.post('/', authenticate, authorizeAdmin, async (req, res) => {
   } catch (error) { res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) }); }
 });
 
+// Sync all categories' SKUs, descriptions & care instructions to linked products
+router.post('/sync-all-to-products', authenticate, authorizeAdmin, async (_req, res) => {
+  try {
+    const [cats] = await pool.query(
+      `SELECT id, name, sku, description, careInstructions, parentId FROM categories 
+       WHERE (sku IS NOT NULL AND sku != "") 
+          OR (description IS NOT NULL AND description != "") 
+          OR (careInstructions IS NOT NULL AND careInstructions != "")`
+    );
+
+    let totalUpdated = 0;
+    const subCats = cats.filter(c => c.parentId);
+    const parentCats = cats.filter(c => !c.parentId);
+    const ordered = [...subCats, ...parentCats];
+
+    for (const cat of ordered) {
+      const updates = [];
+      const params = [];
+      if (cat.sku && String(cat.sku).trim()) {
+        updates.push('sku = ?');
+        params.push(String(cat.sku).trim());
+      }
+      if (cat.description && String(cat.description).trim()) {
+        updates.push('description = ?');
+        params.push(String(cat.description).trim());
+      }
+      if (cat.careInstructions && String(cat.careInstructions).trim()) {
+        updates.push('careInstructions = ?');
+        params.push(String(cat.careInstructions).trim());
+      }
+
+      if (updates.length > 0) {
+        const [children] = await pool.query('SELECT id, sku FROM categories WHERE parentId = ?', [cat.id]);
+        const childIdsWithoutSku = children.filter(c => !c.sku || String(c.sku).trim() === '').map(c => c.id);
+        const targetIds = [cat.id, ...childIdsWithoutSku];
+
+        const [r] = await pool.query(
+          `UPDATE products SET ${updates.join(', ')}, updatedAt = NOW() WHERE categoryId IN (?)`,
+          [...params, targetIds]
+        );
+        totalUpdated += r.affectedRows || 0;
+      }
+    }
+
+    res.json({ success: true, message: `Successfully synced ${totalUpdated} saree(s) across categories.`, totalUpdated });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) });
+  }
+});
+
+// Sync a single category to its linked products
+router.post('/:id/sync-products', authenticate, authorizeAdmin, async (req, res) => {
+  try {
+    const [cats] = await pool.query('SELECT * FROM categories WHERE id = ?', [req.params.id]);
+    if (cats.length === 0) return res.status(404).json({ success: false, message: 'Category not found' });
+    const cat = cats[0];
+
+    const [children] = await pool.query('SELECT id, sku FROM categories WHERE parentId = ?', [cat.id]);
+    const childIds = children.map(c => c.id);
+    const childIdsWithoutSku = children.filter(c => !c.sku || String(c.sku).trim() === '').map(c => c.id);
+    const targetIds = req.body.cascadeToAllChildren ? [cat.id, ...childIds] : (childIds.length === 0 ? [cat.id] : [cat.id, ...childIdsWithoutSku]);
+
+    const updates = [];
+    const params = [];
+    if (cat.sku && String(cat.sku).trim()) {
+      updates.push('sku = ?');
+      params.push(String(cat.sku).trim());
+    }
+    if (cat.description && String(cat.description).trim()) {
+      updates.push('description = ?');
+      params.push(String(cat.description).trim());
+    }
+    if (cat.careInstructions && String(cat.careInstructions).trim()) {
+      updates.push('careInstructions = ?');
+      params.push(String(cat.careInstructions).trim());
+    }
+
+    if (updates.length === 0) {
+      return res.json({ success: true, message: 'No SKU or design details set on this category to sync.', updatedCount: 0 });
+    }
+
+    const [r] = await pool.query(
+      `UPDATE products SET ${updates.join(', ')}, updatedAt = NOW() WHERE categoryId IN (?)`,
+      [...params, targetIds]
+    );
+
+    res.json({
+      success: true,
+      message: `Successfully synced category design details to ${r.affectedRows || 0} saree(s).`,
+      updatedCount: r.affectedRows || 0
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) });
+  }
+});
+
 router.put('/:id', authenticate, authorizeAdmin, async (req, res) => {
   try {
     const allowed = ['name', 'sku', 'parentId', 'type', 'image', 'description', 'careInstructions', 'isActive', 'sortOrder'];
@@ -125,27 +225,68 @@ router.put('/:id', authenticate, authorizeAdmin, async (req, res) => {
       await pool.query(`UPDATE categories SET ${setClause} WHERE id = ?`, [...Object.values(updateObj), req.params.id]);
     }
 
+    // Find all child sub-categories if this is a parent category
+    const [childRows] = await pool.query('SELECT id, sku FROM categories WHERE parentId = ?', [req.params.id]);
+    const childIds = childRows.map(r => r.id);
+    const allTargetCatIds = [req.params.id, ...childIds];
+
     // Cascade isActive changes to child sub-categories and all related products
     if (updateObj.isActive !== undefined) {
       const activeVal = updateObj.isActive ? 1 : 0;
-      // Find all child sub-categories if this is a parent category
-      const [childRows] = await pool.query('SELECT id FROM categories WHERE parentId = ?', [req.params.id]);
-      const childIds = childRows.map(r => r.id);
-
-      // If parent category status changed, cascade status to all its sub-categories
       if (childIds.length > 0) {
         await pool.query('UPDATE categories SET isActive = ? WHERE parentId = ?', [activeVal, req.params.id]);
       }
-
-      // Cascade to all products in this category or any of its child sub-categories
-      const allTargetCatIds = [req.params.id, ...childIds];
       if (allTargetCatIds.length > 0) {
         await pool.query('UPDATE products SET isActive = ? WHERE categoryId IN (?)', [activeVal, allTargetCatIds]);
       }
     }
 
+    // If cascadeToAllChildren is explicitly requested or child categories don't have their own SKU, update child categories too
+    if (req.body.cascadeToAllChildren && childIds.length > 0) {
+      const childUpdates = [];
+      const childParams = [];
+      if (updateObj.sku !== undefined) { childUpdates.push('sku = ?'); childParams.push(updateObj.sku); }
+      if (updateObj.description !== undefined) { childUpdates.push('description = ?'); childParams.push(updateObj.description); }
+      if (updateObj.careInstructions !== undefined) { childUpdates.push('careInstructions = ?'); childParams.push(updateObj.careInstructions); }
+      if (childUpdates.length > 0) {
+        await pool.query(`UPDATE categories SET ${childUpdates.join(', ')} WHERE parentId = ?`, [...childParams, req.params.id]);
+      }
+    }
+
+    // Automatically sync SKU, description, careInstructions to all linked products
+    const prodSet = [];
+    const prodVals = [];
+    if (updateObj.sku !== undefined && updateObj.sku !== null && String(updateObj.sku).trim() !== '') {
+      prodSet.push('sku = ?');
+      prodVals.push(String(updateObj.sku).trim());
+    }
+    if (updateObj.description !== undefined && updateObj.description !== null && String(updateObj.description).trim() !== '') {
+      prodSet.push('description = ?');
+      prodVals.push(String(updateObj.description).trim());
+    }
+    if (updateObj.careInstructions !== undefined && updateObj.careInstructions !== null && String(updateObj.careInstructions).trim() !== '') {
+      prodSet.push('careInstructions = ?');
+      prodVals.push(String(updateObj.careInstructions).trim());
+    }
+
+    let updatedProductCount = 0;
+    if (prodSet.length > 0) {
+      const childIdsWithoutSku = childRows.filter(r => !r.sku || String(r.sku).trim() === '').map(r => r.id);
+      const productTargetCats = req.body.cascadeToAllChildren
+        ? allTargetCatIds
+        : (childIds.length === 0 ? [req.params.id] : [req.params.id, ...childIdsWithoutSku]);
+
+      if (productTargetCats.length > 0) {
+        const [resUpdate] = await pool.query(
+          `UPDATE products SET ${prodSet.join(', ')}, updatedAt = NOW() WHERE categoryId IN (?)`,
+          [...prodVals, productTargetCats]
+        );
+        updatedProductCount = resUpdate.affectedRows || 0;
+      }
+    }
+
     const [rows] = await pool.query('SELECT * FROM categories WHERE id = ?', [req.params.id]);
-    res.json({ success: true, data: rows[0] });
+    res.json({ success: true, data: rows[0], updatedProductCount });
   } catch (error) { res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) }); }
 });
 

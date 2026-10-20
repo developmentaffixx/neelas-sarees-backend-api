@@ -21,6 +21,10 @@ pool.query(`ALTER TABLE categories ADD COLUMN careInstructions TEXT NULL DEFAULT
 pool.query(`ALTER TABLE categories MODIFY COLUMN type VARCHAR(50) NULL DEFAULT NULL`)
   .catch(() => {});
 
+// Soft-delete column: hides category from all lists while keeping the row for history
+pool.query(`ALTER TABLE categories ADD COLUMN deletedAt DATETIME NULL DEFAULT NULL AFTER isActive`)
+  .catch(() => {});
+
 // Non-blocking drop of products sku unique indexes so sarees under same category can share common design SKU
 pool.query('ALTER TABLE products DROP INDEX products_sku_key').catch(() => {});
 pool.query('ALTER TABLE products DROP INDEX sku').catch(() => {});
@@ -40,15 +44,15 @@ router.get('/', async (_req, res) => {
       SELECT c.*, p_cat.name as parentName, p_cat.slug as parentSlug, COUNT(p.id) as productCount 
       FROM categories c 
       LEFT JOIN categories p_cat ON c.parentId = p_cat.id
-      LEFT JOIN products p ON p.categoryId = c.id AND p.isActive = 1 
-      WHERE c.isActive = 1 
+      LEFT JOIN products p ON p.categoryId = c.id AND p.isActive = 1 AND p.deletedAt IS NULL
+      WHERE c.isActive = 1 AND c.deletedAt IS NULL
       GROUP BY c.id 
       ORDER BY c.sortOrder ASC
     `);
     res.json({ success: true, data: rows });
   } catch (error) {
     try {
-      const [rows] = await pool.query('SELECT * FROM categories WHERE isActive = 1 ORDER BY sortOrder ASC');
+      const [rows] = await pool.query('SELECT * FROM categories WHERE isActive = 1 AND deletedAt IS NULL ORDER BY sortOrder ASC');
       res.json({ success: true, data: rows });
     } catch (e) {
       res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) });
@@ -62,7 +66,8 @@ router.get('/admin/all', authenticate, authorizeAdmin, async (_req, res) => {
       SELECT c.*, p_cat.name as parentName, COUNT(p.id) as productCount 
       FROM categories c 
       LEFT JOIN categories p_cat ON c.parentId = p_cat.id
-      LEFT JOIN products p ON p.categoryId = c.id AND p.isActive = 1 
+      LEFT JOIN products p ON p.categoryId = c.id AND p.isActive = 1 AND p.deletedAt IS NULL
+      WHERE c.deletedAt IS NULL
       GROUP BY c.id 
       ORDER BY 
         COALESCE(CAST(c.parentId AS UNSIGNED), CAST(c.id AS UNSIGNED)) ASC,
@@ -328,13 +333,13 @@ router.delete('/:id', authenticate, authorizeAdmin, async (req, res) => {
     const childIds = childRows.map(r => r.id);
     const allCatIds = [id, ...childIds];
 
-    // Deactivate parent & all child subcategories
-    await pool.query('UPDATE categories SET isActive = 0 WHERE id IN (?)', [allCatIds]);
+    // Soft delete parent & all child subcategories (disappear from all lists, kept for history)
+    await pool.query('UPDATE categories SET deletedAt = NOW() WHERE id IN (?)', [allCatIds]);
 
-    // Deactivate all products under them
-    await pool.query('UPDATE products SET isActive = 0 WHERE categoryId IN (?)', [allCatIds]);
+    // Soft delete all products under them
+    await pool.query('UPDATE products SET deletedAt = NOW() WHERE categoryId IN (?)', [allCatIds]);
 
-    res.json({ success: true, message: 'Category, sub-categories, and related products deactivated' });
+    res.json({ success: true, message: 'Category, sub-categories, and related products deleted' });
   } catch (error) { res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) }); }
 });
 

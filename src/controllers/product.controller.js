@@ -6,6 +6,9 @@ const { serializeError } = require('../lib/errorHandler');
 // Non-blocking drop of products_sku_key so multiple color sarees can share the common design SKU
 pool.query('ALTER TABLE products DROP INDEX products_sku_key').catch(() => {});
 
+// Non-blocking add of deletedAt column for soft-delete (hides from all lists, keeps order history intact)
+pool.query('ALTER TABLE products ADD COLUMN deletedAt DATETIME NULL DEFAULT NULL').catch(() => {});
+
 function safeParseJSON(value, fallback = []) {
   if (!value) return fallback;
   if (Array.isArray(value)) return value;
@@ -114,6 +117,8 @@ const getProducts = async (req, res) => {
     const conditions = [];
     const params = [];
 
+    // Always exclude soft-deleted products (even for admin lists with includeInactive)
+    conditions.push('p.deletedAt IS NULL');
     if (includeInactive !== 'true') conditions.push('p.isActive = 1');
     if (category) {
       const catSlugs = String(category).split(',').map(s => s.trim()).filter(Boolean);
@@ -205,7 +210,7 @@ const getProductBySlug = async (req, res) => {
     const [rows] = await pool.query(
       `SELECT p.*, c.id as cat_id, c.name as cat_name, c.slug as cat_slug, c.type as cat_type, c.sku as cat_sku, c.description as cat_description, c.careInstructions as cat_careInstructions
        FROM products p LEFT JOIN categories c ON p.categoryId = c.id
-       WHERE p.slug = ? AND p.isActive = 1`, [req.params.slug]
+       WHERE p.slug = ? AND p.isActive = 1 AND p.deletedAt IS NULL`, [req.params.slug]
     );
     if (rows.length === 0) return res.status(404).json({ success: false, message: 'Product not found' });
 
@@ -234,7 +239,7 @@ const getFeaturedProducts = async (_req, res) => {
     const [rows] = await pool.query(
       `SELECT p.*, c.id as cat_id, c.name as cat_name, c.slug as cat_slug, c.type as cat_type, c.sku as cat_sku, c.description as cat_description, c.careInstructions as cat_careInstructions
        FROM products p LEFT JOIN categories c ON p.categoryId = c.id
-       WHERE p.isFeatured = 1 AND p.isActive = 1 ORDER BY p.createdAt DESC LIMIT 8`
+       WHERE p.isFeatured = 1 AND p.isActive = 1 AND p.deletedAt IS NULL ORDER BY p.createdAt DESC LIMIT 8`
     );
     const productIds = rows.map(r => r.id);
     const variantsMap = await fetchVariantsForProducts(productIds);
@@ -484,7 +489,8 @@ const updateProduct = async (req, res) => {
 // ─── Admin: Delete product (soft) ────────────────────────────────────────────
 const deleteProduct = async (req, res) => {
   try {
-    await pool.query('UPDATE products SET isActive = 0 WHERE id = ?', [req.params.id]);
+    // Soft delete: mark deletedAt so it disappears from all lists while preserving order history
+    await pool.query('UPDATE products SET deletedAt = NOW() WHERE id = ?', [req.params.id]);
     res.json({ success: true, message: 'Product deleted' });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Server error', error: serializeError(error) });
@@ -502,7 +508,7 @@ const bulkUpdateProducts = async (req, res) => {
       deactivate: `UPDATE products SET isActive = 0, updatedAt = NOW() WHERE id IN (${placeholders})`,
       feature:    `UPDATE products SET isFeatured = 1, updatedAt = NOW() WHERE id IN (${placeholders})`,
       unfeature:  `UPDATE products SET isFeatured = 0, updatedAt = NOW() WHERE id IN (${placeholders})`,
-      delete:     `UPDATE products SET isActive = 0, updatedAt = NOW() WHERE id IN (${placeholders})`,
+      delete:     `UPDATE products SET deletedAt = NOW(), updatedAt = NOW() WHERE id IN (${placeholders})`,
     };
     if (!actionMap[action]) return res.status(400).json({ success: false, message: 'Invalid action' });
     await pool.query(actionMap[action], ids);
